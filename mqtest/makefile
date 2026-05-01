@@ -1,3 +1,5 @@
+mq_msgtest:mq_msgtest.cpp ../mqcommon/mq_msg.pb.cc
+	g++ $^ -o $@ -std=c++11 -lgtest -lprotobuf -lsqlite3
 mq_bindingtest:mq_bindingtest.cpp
 	g++ $^ -o $@ -std=c++11 -lgtest -lprotobuf -lsqlite3
 mq_queuetest:mq_queuetest.cpp
