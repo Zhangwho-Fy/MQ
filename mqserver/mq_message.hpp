@@ -349,7 +349,7 @@ namespace Fy_mq{
             qmp->recovery();//使用内部锁
         }
 
-        void destoryQueueMessage(const std::string &qname){
+        void destroyQueueMessage(const std::string &qname){
             QueueMessage::ptr qmp;
             {
                 std::unique_lock<std::mutex> lock(_mutex);

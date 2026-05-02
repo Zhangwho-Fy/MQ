@@ -1,3 +1,7 @@
+mq_routetest:mq_routetest.cpp ../mqcommon/mq_msg.pb.cc
+	g++ $^ -o $@ -std=c++11 -lgtest -lprotobuf -lsqlite3
+mq_hosttest:mq_hosttest.cpp ../mqcommon/mq_msg.pb.cc
+	g++ $^ -o $@ -std=c++11 -lgtest -lprotobuf -lsqlite3
 mq_msgtest:mq_msgtest.cpp ../mqcommon/mq_msg.pb.cc
 	g++ $^ -o $@ -std=c++11 -lgtest -lprotobuf -lsqlite3
 mq_bindingtest:mq_bindingtest.cpp
