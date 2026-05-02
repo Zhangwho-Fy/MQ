@@ -1,0 +1,118 @@
+syntax = "proto3";
+package Fy_mq;
+
+import "mq_msg.proto";
+
+// 信道打开请求
+message openChannelRequest {
+    string rid = 1;     // 请求ID（request id）
+    string cid = 2;     // 信道ID（channel id）
+}
+
+// 信道关闭请求
+message closeChannelRequest {
+    string rid = 1;
+    string cid = 2;
+}
+
+// 交换机声明请求
+message declareExchangeRequest {
+    string rid = 1;
+    string cid = 2;
+    string exchange_name = 3;
+    ExchangeType exchange_type = 4;
+    bool durable = 5;
+    bool auto_delete = 6;
+    map<string, string> args = 7;
+}
+
+// 交换机删除请求
+message deleteExchangeRequest {
+    string rid = 1;
+    string cid = 2;
+    string exchange_name = 3;
+}
+
+// 队列声明请求
+message declareQueueRequest {
+    string rid = 1;
+    string cid = 2;
+    string queue_name = 3;
+    bool exclusive = 4;
+    bool durable = 5;
+    bool auto_delete = 6;
+    map<string, string> args = 7;
+}
+
+// 队列删除请求
+message deleteQueueRequest {
+    string rid = 1;
+    string cid = 2;
+    string queue_name = 3;
+}
+
+// 队列绑定请求
+message queueBindRequest {
+    string rid = 1;
+    string cid = 2;
+    string exchange_name = 3;
+    string queue_name = 4;
+    string binding_key = 5;
+}
+
+// 队列解绑请求
+message queueUnBindRequest {
+    string rid = 1;
+    string cid = 2;
+    string exchange_name = 3;
+    string queue_name = 4;
+}
+
+// 消息发布请求
+message basicPublishRequest {
+    string rid = 1;
+    string cid = 2;
+    string exchange_name = 3;
+    string body = 4;
+    BasicProperties properties = 5;
+}
+
+// 消息确认请求（客户端告知服务端已消费）
+message basicAckRequest {
+    string rid = 1;
+    string cid = 2;
+    string queue_name = 3;
+    string message_id = 4;
+}
+
+// 订阅队列请求（开始消费）
+message basicConsumeRequest {
+    string rid = 1;
+    string cid = 2;
+    string consumer_tag = 3;
+    string queue_name = 4;
+    bool auto_ack = 5;
+}
+
+// 取消订阅请求（停止消费）
+message basicCancelRequest {
+    string rid = 1;
+    string cid = 2;
+    string consumer_tag = 3;
+    string queue_name = 4;
+}
+
+// 服务端推送消息给客户端
+message basicConsumeResponse {
+    string cid = 1;
+    string consumer_id = 2;
+    string body = 3;
+    BasicProperties properties = 4;
+}
+
+// 通用响应（服务端 → 客户端）
+message basicResponse {
+    string rid = 1;
+    string cid = 2;
+    bool ok = 3;
+}
