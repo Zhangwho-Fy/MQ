@@ -1,3 +1,7 @@
+mq_connectiontest:mq_connectiontest.cpp ../mqcommon/mq_msg.pb.cc ../mqcommon/mq_proto.pb.cc
+	g++ -g -std=c++11 $^ -o $@ -lgtest -lprotobuf -lsqlite3 -I../mqthird/include
+mq_channeltest:mq_channeltest.cpp ../mqcommon/mq_msg.pb.cc ../mqcommon/mq_proto.pb.cc
+	g++ $^ -o $@ -std=c++11 -lgtest -lprotobuf -lsqlite3 -I../mqthird/include
 mq_consumertest:mq_consumertest.cpp ../mqcommon/mq_msg.pb.cc
 	g++ $^ -o $@ -std=c++11 -lgtest -lprotobuf -lsqlite3
 mq_routetest:mq_routetest.cpp ../mqcommon/mq_msg.pb.cc

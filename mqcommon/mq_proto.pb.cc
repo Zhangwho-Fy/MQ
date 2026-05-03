@@ -242,20 +242,20 @@ struct basicConsumeResponseDefaultTypeInternal {
   };
 };
 PROTOBUF_ATTRIBUTE_NO_DESTROY PROTOBUF_CONSTINIT PROTOBUF_ATTRIBUTE_INIT_PRIORITY1 basicConsumeResponseDefaultTypeInternal _basicConsumeResponse_default_instance_;
-PROTOBUF_CONSTEXPR basicResponse::basicResponse(
+PROTOBUF_CONSTEXPR basicCommonResponse::basicCommonResponse(
     ::_pbi::ConstantInitialized)
   : rid_(&::_pbi::fixed_address_empty_string, ::_pbi::ConstantInitialized{})
   , cid_(&::_pbi::fixed_address_empty_string, ::_pbi::ConstantInitialized{})
   , ok_(false){}
-struct basicResponseDefaultTypeInternal {
-  PROTOBUF_CONSTEXPR basicResponseDefaultTypeInternal()
+struct basicCommonResponseDefaultTypeInternal {
+  PROTOBUF_CONSTEXPR basicCommonResponseDefaultTypeInternal()
       : _instance(::_pbi::ConstantInitialized{}) {}
-  ~basicResponseDefaultTypeInternal() {}
+  ~basicCommonResponseDefaultTypeInternal() {}
   union {
-    basicResponse _instance;
+    basicCommonResponse _instance;
   };
 };
-PROTOBUF_ATTRIBUTE_NO_DESTROY PROTOBUF_CONSTINIT PROTOBUF_ATTRIBUTE_INIT_PRIORITY1 basicResponseDefaultTypeInternal _basicResponse_default_instance_;
+PROTOBUF_ATTRIBUTE_NO_DESTROY PROTOBUF_CONSTINIT PROTOBUF_ATTRIBUTE_INIT_PRIORITY1 basicCommonResponseDefaultTypeInternal _basicCommonResponse_default_instance_;
 }  // namespace Fy_mq
 static ::_pb::Metadata file_level_metadata_mq_5fproto_2eproto[16];
 static constexpr ::_pb::EnumDescriptor const** file_level_enum_descriptors_mq_5fproto_2eproto = nullptr;
@@ -416,14 +416,14 @@ const uint32_t TableStruct_mq_5fproto_2eproto::offsets[] PROTOBUF_SECTION_VARIAB
   PROTOBUF_FIELD_OFFSET(::Fy_mq::basicConsumeResponse, body_),
   PROTOBUF_FIELD_OFFSET(::Fy_mq::basicConsumeResponse, properties_),
   ~0u,  // no _has_bits_
-  PROTOBUF_FIELD_OFFSET(::Fy_mq::basicResponse, _internal_metadata_),
+  PROTOBUF_FIELD_OFFSET(::Fy_mq::basicCommonResponse, _internal_metadata_),
   ~0u,  // no _extensions_
   ~0u,  // no _oneof_case_
   ~0u,  // no _weak_field_map_
   ~0u,  // no _inlined_string_donated_
-  PROTOBUF_FIELD_OFFSET(::Fy_mq::basicResponse, rid_),
-  PROTOBUF_FIELD_OFFSET(::Fy_mq::basicResponse, cid_),
-  PROTOBUF_FIELD_OFFSET(::Fy_mq::basicResponse, ok_),
+  PROTOBUF_FIELD_OFFSET(::Fy_mq::basicCommonResponse, rid_),
+  PROTOBUF_FIELD_OFFSET(::Fy_mq::basicCommonResponse, cid_),
+  PROTOBUF_FIELD_OFFSET(::Fy_mq::basicCommonResponse, ok_),
 };
 static const ::_pbi::MigrationSchema schemas[] PROTOBUF_SECTION_VARIABLE(protodesc_cold) = {
   { 0, -1, -1, sizeof(::Fy_mq::openChannelRequest)},
@@ -441,7 +441,7 @@ static const ::_pbi::MigrationSchema schemas[] PROTOBUF_SECTION_VARIABLE(protode
   { 122, -1, -1, sizeof(::Fy_mq::basicConsumeRequest)},
   { 133, -1, -1, sizeof(::Fy_mq::basicCancelRequest)},
   { 143, -1, -1, sizeof(::Fy_mq::basicConsumeResponse)},
-  { 153, -1, -1, sizeof(::Fy_mq::basicResponse)},
+  { 153, -1, -1, sizeof(::Fy_mq::basicCommonResponse)},
 };
 
 static const ::_pb::Message* const file_default_instances[] = {
@@ -460,7 +460,7 @@ static const ::_pb::Message* const file_default_instances[] = {
   &::Fy_mq::_basicConsumeRequest_default_instance_._instance,
   &::Fy_mq::_basicCancelRequest_default_instance_._instance,
   &::Fy_mq::_basicConsumeResponse_default_instance_._instance,
-  &::Fy_mq::_basicResponse_default_instance_._instance,
+  &::Fy_mq::_basicCommonResponse_default_instance_._instance,
 };
 
 const char descriptor_table_protodef_mq_5fproto_2eproto[] PROTOBUF_SECTION_VARIABLE(protodesc_cold) =
@@ -501,15 +501,15 @@ const char descriptor_table_protodef_mq_5fproto_2eproto[] PROTOBUF_SECTION_VARIA
   "eue_name\030\004 \001(\t\"r\n\024basicConsumeResponse\022\013"
   "\n\003cid\030\001 \001(\t\022\023\n\013consumer_id\030\002 \001(\t\022\014\n\004body"
   "\030\003 \001(\t\022*\n\nproperties\030\004 \001(\0132\026.Fy_mq.Basic"
-  "Properties\"5\n\rbasicResponse\022\013\n\003rid\030\001 \001(\t"
-  "\022\013\n\003cid\030\002 \001(\t\022\n\n\002ok\030\003 \001(\010b\006proto3"
+  "Properties\";\n\023basicCommonResponse\022\013\n\003rid"
+  "\030\001 \001(\t\022\013\n\003cid\030\002 \001(\t\022\n\n\002ok\030\003 \001(\010b\006proto3"
   ;
 static const ::_pbi::DescriptorTable* const descriptor_table_mq_5fproto_2eproto_deps[1] = {
   &::descriptor_table_mq_5fmsg_2eproto,
 };
 static ::_pbi::once_flag descriptor_table_mq_5fproto_2eproto_once;
 const ::_pbi::DescriptorTable descriptor_table_mq_5fproto_2eproto = {
-    false, false, 1553, descriptor_table_protodef_mq_5fproto_2eproto,
+    false, false, 1559, descriptor_table_protodef_mq_5fproto_2eproto,
     "mq_proto.proto",
     &descriptor_table_mq_5fproto_2eproto_once, descriptor_table_mq_5fproto_2eproto_deps, 1, 16,
     schemas, file_default_instances, TableStruct_mq_5fproto_2eproto::offsets,
@@ -4998,17 +4998,17 @@ void basicConsumeResponse::InternalSwap(basicConsumeResponse* other) {
 
 // ===================================================================
 
-class basicResponse::_Internal {
+class basicCommonResponse::_Internal {
  public:
 };
 
-basicResponse::basicResponse(::PROTOBUF_NAMESPACE_ID::Arena* arena,
+basicCommonResponse::basicCommonResponse(::PROTOBUF_NAMESPACE_ID::Arena* arena,
                          bool is_message_owned)
   : ::PROTOBUF_NAMESPACE_ID::Message(arena, is_message_owned) {
   SharedCtor();
-  // @@protoc_insertion_point(arena_constructor:Fy_mq.basicResponse)
+  // @@protoc_insertion_point(arena_constructor:Fy_mq.basicCommonResponse)
 }
-basicResponse::basicResponse(const basicResponse& from)
+basicCommonResponse::basicCommonResponse(const basicCommonResponse& from)
   : ::PROTOBUF_NAMESPACE_ID::Message() {
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   rid_.InitDefault();
@@ -5028,10 +5028,10 @@ basicResponse::basicResponse(const basicResponse& from)
       GetArenaForAllocation());
   }
   ok_ = from.ok_;
-  // @@protoc_insertion_point(copy_constructor:Fy_mq.basicResponse)
+  // @@protoc_insertion_point(copy_constructor:Fy_mq.basicCommonResponse)
 }
 
-inline void basicResponse::SharedCtor() {
+inline void basicCommonResponse::SharedCtor() {
 rid_.InitDefault();
 #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
   rid_.Set("", GetArenaForAllocation());
@@ -5043,8 +5043,8 @@ cid_.InitDefault();
 ok_ = false;
 }
 
-basicResponse::~basicResponse() {
-  // @@protoc_insertion_point(destructor:Fy_mq.basicResponse)
+basicCommonResponse::~basicCommonResponse() {
+  // @@protoc_insertion_point(destructor:Fy_mq.basicCommonResponse)
   if (auto *arena = _internal_metadata_.DeleteReturnArena<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>()) {
   (void)arena;
     return;
@@ -5052,18 +5052,18 @@ basicResponse::~basicResponse() {
   SharedDtor();
 }
 
-inline void basicResponse::SharedDtor() {
+inline void basicCommonResponse::SharedDtor() {
   GOOGLE_DCHECK(GetArenaForAllocation() == nullptr);
   rid_.Destroy();
   cid_.Destroy();
 }
 
-void basicResponse::SetCachedSize(int size) const {
+void basicCommonResponse::SetCachedSize(int size) const {
   _cached_size_.Set(size);
 }
 
-void basicResponse::Clear() {
-// @@protoc_insertion_point(message_clear_start:Fy_mq.basicResponse)
+void basicCommonResponse::Clear() {
+// @@protoc_insertion_point(message_clear_start:Fy_mq.basicCommonResponse)
   uint32_t cached_has_bits = 0;
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
@@ -5074,7 +5074,7 @@ void basicResponse::Clear() {
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
-const char* basicResponse::_InternalParse(const char* ptr, ::_pbi::ParseContext* ctx) {
+const char* basicCommonResponse::_InternalParse(const char* ptr, ::_pbi::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
   while (!ctx->Done(&ptr)) {
     uint32_t tag;
@@ -5086,7 +5086,7 @@ const char* basicResponse::_InternalParse(const char* ptr, ::_pbi::ParseContext*
           auto str = _internal_mutable_rid();
           ptr = ::_pbi::InlineGreedyStringParser(str, ptr, ctx);
           CHK_(ptr);
-          CHK_(::_pbi::VerifyUTF8(str, "Fy_mq.basicResponse.rid"));
+          CHK_(::_pbi::VerifyUTF8(str, "Fy_mq.basicCommonResponse.rid"));
         } else
           goto handle_unusual;
         continue;
@@ -5096,7 +5096,7 @@ const char* basicResponse::_InternalParse(const char* ptr, ::_pbi::ParseContext*
           auto str = _internal_mutable_cid();
           ptr = ::_pbi::InlineGreedyStringParser(str, ptr, ctx);
           CHK_(ptr);
-          CHK_(::_pbi::VerifyUTF8(str, "Fy_mq.basicResponse.cid"));
+          CHK_(::_pbi::VerifyUTF8(str, "Fy_mq.basicCommonResponse.cid"));
         } else
           goto handle_unusual;
         continue;
@@ -5131,9 +5131,9 @@ failure:
 #undef CHK_
 }
 
-uint8_t* basicResponse::_InternalSerialize(
+uint8_t* basicCommonResponse::_InternalSerialize(
     uint8_t* target, ::PROTOBUF_NAMESPACE_ID::io::EpsCopyOutputStream* stream) const {
-  // @@protoc_insertion_point(serialize_to_array_start:Fy_mq.basicResponse)
+  // @@protoc_insertion_point(serialize_to_array_start:Fy_mq.basicCommonResponse)
   uint32_t cached_has_bits = 0;
   (void) cached_has_bits;
 
@@ -5142,7 +5142,7 @@ uint8_t* basicResponse::_InternalSerialize(
     ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::VerifyUtf8String(
       this->_internal_rid().data(), static_cast<int>(this->_internal_rid().length()),
       ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::SERIALIZE,
-      "Fy_mq.basicResponse.rid");
+      "Fy_mq.basicCommonResponse.rid");
     target = stream->WriteStringMaybeAliased(
         1, this->_internal_rid(), target);
   }
@@ -5152,7 +5152,7 @@ uint8_t* basicResponse::_InternalSerialize(
     ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::VerifyUtf8String(
       this->_internal_cid().data(), static_cast<int>(this->_internal_cid().length()),
       ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::SERIALIZE,
-      "Fy_mq.basicResponse.cid");
+      "Fy_mq.basicCommonResponse.cid");
     target = stream->WriteStringMaybeAliased(
         2, this->_internal_cid(), target);
   }
@@ -5167,12 +5167,12 @@ uint8_t* basicResponse::_InternalSerialize(
     target = ::_pbi::WireFormat::InternalSerializeUnknownFieldsToArray(
         _internal_metadata_.unknown_fields<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(::PROTOBUF_NAMESPACE_ID::UnknownFieldSet::default_instance), target, stream);
   }
-  // @@protoc_insertion_point(serialize_to_array_end:Fy_mq.basicResponse)
+  // @@protoc_insertion_point(serialize_to_array_end:Fy_mq.basicCommonResponse)
   return target;
 }
 
-size_t basicResponse::ByteSizeLong() const {
-// @@protoc_insertion_point(message_byte_size_start:Fy_mq.basicResponse)
+size_t basicCommonResponse::ByteSizeLong() const {
+// @@protoc_insertion_point(message_byte_size_start:Fy_mq.basicCommonResponse)
   size_t total_size = 0;
 
   uint32_t cached_has_bits = 0;
@@ -5201,21 +5201,21 @@ size_t basicResponse::ByteSizeLong() const {
   return MaybeComputeUnknownFieldsSize(total_size, &_cached_size_);
 }
 
-const ::PROTOBUF_NAMESPACE_ID::Message::ClassData basicResponse::_class_data_ = {
+const ::PROTOBUF_NAMESPACE_ID::Message::ClassData basicCommonResponse::_class_data_ = {
     ::PROTOBUF_NAMESPACE_ID::Message::CopyWithSizeCheck,
-    basicResponse::MergeImpl
+    basicCommonResponse::MergeImpl
 };
-const ::PROTOBUF_NAMESPACE_ID::Message::ClassData*basicResponse::GetClassData() const { return &_class_data_; }
+const ::PROTOBUF_NAMESPACE_ID::Message::ClassData*basicCommonResponse::GetClassData() const { return &_class_data_; }
 
-void basicResponse::MergeImpl(::PROTOBUF_NAMESPACE_ID::Message* to,
+void basicCommonResponse::MergeImpl(::PROTOBUF_NAMESPACE_ID::Message* to,
                       const ::PROTOBUF_NAMESPACE_ID::Message& from) {
-  static_cast<basicResponse *>(to)->MergeFrom(
-      static_cast<const basicResponse &>(from));
+  static_cast<basicCommonResponse *>(to)->MergeFrom(
+      static_cast<const basicCommonResponse &>(from));
 }
 
 
-void basicResponse::MergeFrom(const basicResponse& from) {
-// @@protoc_insertion_point(class_specific_merge_from_start:Fy_mq.basicResponse)
+void basicCommonResponse::MergeFrom(const basicCommonResponse& from) {
+// @@protoc_insertion_point(class_specific_merge_from_start:Fy_mq.basicCommonResponse)
   GOOGLE_DCHECK_NE(&from, this);
   uint32_t cached_has_bits = 0;
   (void) cached_has_bits;
@@ -5232,18 +5232,18 @@ void basicResponse::MergeFrom(const basicResponse& from) {
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
 }
 
-void basicResponse::CopyFrom(const basicResponse& from) {
-// @@protoc_insertion_point(class_specific_copy_from_start:Fy_mq.basicResponse)
+void basicCommonResponse::CopyFrom(const basicCommonResponse& from) {
+// @@protoc_insertion_point(class_specific_copy_from_start:Fy_mq.basicCommonResponse)
   if (&from == this) return;
   Clear();
   MergeFrom(from);
 }
 
-bool basicResponse::IsInitialized() const {
+bool basicCommonResponse::IsInitialized() const {
   return true;
 }
 
-void basicResponse::InternalSwap(basicResponse* other) {
+void basicCommonResponse::InternalSwap(basicCommonResponse* other) {
   using std::swap;
   auto* lhs_arena = GetArenaForAllocation();
   auto* rhs_arena = other->GetArenaForAllocation();
@@ -5259,7 +5259,7 @@ void basicResponse::InternalSwap(basicResponse* other) {
   swap(ok_, other->ok_);
 }
 
-::PROTOBUF_NAMESPACE_ID::Metadata basicResponse::GetMetadata() const {
+::PROTOBUF_NAMESPACE_ID::Metadata basicCommonResponse::GetMetadata() const {
   return ::_pbi::AssignDescriptors(
       &descriptor_table_mq_5fproto_2eproto_getter, &descriptor_table_mq_5fproto_2eproto_once,
       file_level_metadata_mq_5fproto_2eproto[15]);
@@ -5328,9 +5328,9 @@ template<> PROTOBUF_NOINLINE ::Fy_mq::basicConsumeResponse*
 Arena::CreateMaybeMessage< ::Fy_mq::basicConsumeResponse >(Arena* arena) {
   return Arena::CreateMessageInternal< ::Fy_mq::basicConsumeResponse >(arena);
 }
-template<> PROTOBUF_NOINLINE ::Fy_mq::basicResponse*
-Arena::CreateMaybeMessage< ::Fy_mq::basicResponse >(Arena* arena) {
-  return Arena::CreateMessageInternal< ::Fy_mq::basicResponse >(arena);
+template<> PROTOBUF_NOINLINE ::Fy_mq::basicCommonResponse*
+Arena::CreateMaybeMessage< ::Fy_mq::basicCommonResponse >(Arena* arena) {
+  return Arena::CreateMessageInternal< ::Fy_mq::basicCommonResponse >(arena);
 }
 PROTOBUF_NAMESPACE_CLOSE
 

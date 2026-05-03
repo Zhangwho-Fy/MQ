@@ -111,7 +111,7 @@ message basicConsumeResponse {
 }
 
 // 通用响应（服务端 → 客户端）
-message basicResponse {
+message basicCommonResponse {
     string rid = 1;
     string cid = 2;
     bool ok = 3;

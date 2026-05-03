@@ -55,6 +55,9 @@ extern basicAckRequestDefaultTypeInternal _basicAckRequest_default_instance_;
 class basicCancelRequest;
 struct basicCancelRequestDefaultTypeInternal;
 extern basicCancelRequestDefaultTypeInternal _basicCancelRequest_default_instance_;
+class basicCommonResponse;
+struct basicCommonResponseDefaultTypeInternal;
+extern basicCommonResponseDefaultTypeInternal _basicCommonResponse_default_instance_;
 class basicConsumeRequest;
 struct basicConsumeRequestDefaultTypeInternal;
 extern basicConsumeRequestDefaultTypeInternal _basicConsumeRequest_default_instance_;
@@ -64,9 +67,6 @@ extern basicConsumeResponseDefaultTypeInternal _basicConsumeResponse_default_ins
 class basicPublishRequest;
 struct basicPublishRequestDefaultTypeInternal;
 extern basicPublishRequestDefaultTypeInternal _basicPublishRequest_default_instance_;
-class basicResponse;
-struct basicResponseDefaultTypeInternal;
-extern basicResponseDefaultTypeInternal _basicResponse_default_instance_;
 class closeChannelRequest;
 struct closeChannelRequestDefaultTypeInternal;
 extern closeChannelRequestDefaultTypeInternal _closeChannelRequest_default_instance_;
@@ -101,10 +101,10 @@ extern queueUnBindRequestDefaultTypeInternal _queueUnBindRequest_default_instanc
 PROTOBUF_NAMESPACE_OPEN
 template<> ::Fy_mq::basicAckRequest* Arena::CreateMaybeMessage<::Fy_mq::basicAckRequest>(Arena*);
 template<> ::Fy_mq::basicCancelRequest* Arena::CreateMaybeMessage<::Fy_mq::basicCancelRequest>(Arena*);
+template<> ::Fy_mq::basicCommonResponse* Arena::CreateMaybeMessage<::Fy_mq::basicCommonResponse>(Arena*);
 template<> ::Fy_mq::basicConsumeRequest* Arena::CreateMaybeMessage<::Fy_mq::basicConsumeRequest>(Arena*);
 template<> ::Fy_mq::basicConsumeResponse* Arena::CreateMaybeMessage<::Fy_mq::basicConsumeResponse>(Arena*);
 template<> ::Fy_mq::basicPublishRequest* Arena::CreateMaybeMessage<::Fy_mq::basicPublishRequest>(Arena*);
-template<> ::Fy_mq::basicResponse* Arena::CreateMaybeMessage<::Fy_mq::basicResponse>(Arena*);
 template<> ::Fy_mq::closeChannelRequest* Arena::CreateMaybeMessage<::Fy_mq::closeChannelRequest>(Arena*);
 template<> ::Fy_mq::declareExchangeRequest* Arena::CreateMaybeMessage<::Fy_mq::declareExchangeRequest>(Arena*);
 template<> ::Fy_mq::declareExchangeRequest_ArgsEntry_DoNotUse* Arena::CreateMaybeMessage<::Fy_mq::declareExchangeRequest_ArgsEntry_DoNotUse>(Arena*);
@@ -2765,24 +2765,24 @@ class basicConsumeResponse final :
 };
 // -------------------------------------------------------------------
 
-class basicResponse final :
-    public ::PROTOBUF_NAMESPACE_ID::Message /* @@protoc_insertion_point(class_definition:Fy_mq.basicResponse) */ {
+class basicCommonResponse final :
+    public ::PROTOBUF_NAMESPACE_ID::Message /* @@protoc_insertion_point(class_definition:Fy_mq.basicCommonResponse) */ {
  public:
-  inline basicResponse() : basicResponse(nullptr) {}
-  ~basicResponse() override;
-  explicit PROTOBUF_CONSTEXPR basicResponse(::PROTOBUF_NAMESPACE_ID::internal::ConstantInitialized);
+  inline basicCommonResponse() : basicCommonResponse(nullptr) {}
+  ~basicCommonResponse() override;
+  explicit PROTOBUF_CONSTEXPR basicCommonResponse(::PROTOBUF_NAMESPACE_ID::internal::ConstantInitialized);
 
-  basicResponse(const basicResponse& from);
-  basicResponse(basicResponse&& from) noexcept
-    : basicResponse() {
+  basicCommonResponse(const basicCommonResponse& from);
+  basicCommonResponse(basicCommonResponse&& from) noexcept
+    : basicCommonResponse() {
     *this = ::std::move(from);
   }
 
-  inline basicResponse& operator=(const basicResponse& from) {
+  inline basicCommonResponse& operator=(const basicCommonResponse& from) {
     CopyFrom(from);
     return *this;
   }
-  inline basicResponse& operator=(basicResponse&& from) noexcept {
+  inline basicCommonResponse& operator=(basicCommonResponse&& from) noexcept {
     if (this == &from) return *this;
     if (GetOwningArena() == from.GetOwningArena()
   #ifdef PROTOBUF_FORCE_COPY_IN_MOVE
@@ -2805,20 +2805,20 @@ class basicResponse final :
   static const ::PROTOBUF_NAMESPACE_ID::Reflection* GetReflection() {
     return default_instance().GetMetadata().reflection;
   }
-  static const basicResponse& default_instance() {
+  static const basicCommonResponse& default_instance() {
     return *internal_default_instance();
   }
-  static inline const basicResponse* internal_default_instance() {
-    return reinterpret_cast<const basicResponse*>(
-               &_basicResponse_default_instance_);
+  static inline const basicCommonResponse* internal_default_instance() {
+    return reinterpret_cast<const basicCommonResponse*>(
+               &_basicCommonResponse_default_instance_);
   }
   static constexpr int kIndexInFileMessages =
     15;
 
-  friend void swap(basicResponse& a, basicResponse& b) {
+  friend void swap(basicCommonResponse& a, basicCommonResponse& b) {
     a.Swap(&b);
   }
-  inline void Swap(basicResponse* other) {
+  inline void Swap(basicCommonResponse* other) {
     if (other == this) return;
   #ifdef PROTOBUF_FORCE_COPY_IN_SWAP
     if (GetOwningArena() != nullptr &&
@@ -2831,7 +2831,7 @@ class basicResponse final :
       ::PROTOBUF_NAMESPACE_ID::internal::GenericSwap(this, other);
     }
   }
-  void UnsafeArenaSwap(basicResponse* other) {
+  void UnsafeArenaSwap(basicCommonResponse* other) {
     if (other == this) return;
     GOOGLE_DCHECK(GetOwningArena() == other->GetOwningArena());
     InternalSwap(other);
@@ -2839,13 +2839,13 @@ class basicResponse final :
 
   // implements Message ----------------------------------------------
 
-  basicResponse* New(::PROTOBUF_NAMESPACE_ID::Arena* arena = nullptr) const final {
-    return CreateMaybeMessage<basicResponse>(arena);
+  basicCommonResponse* New(::PROTOBUF_NAMESPACE_ID::Arena* arena = nullptr) const final {
+    return CreateMaybeMessage<basicCommonResponse>(arena);
   }
   using ::PROTOBUF_NAMESPACE_ID::Message::CopyFrom;
-  void CopyFrom(const basicResponse& from);
+  void CopyFrom(const basicCommonResponse& from);
   using ::PROTOBUF_NAMESPACE_ID::Message::MergeFrom;
-  void MergeFrom(const basicResponse& from);
+  void MergeFrom(const basicCommonResponse& from);
   private:
   static void MergeImpl(::PROTOBUF_NAMESPACE_ID::Message* to, const ::PROTOBUF_NAMESPACE_ID::Message& from);
   public:
@@ -2862,15 +2862,15 @@ class basicResponse final :
   void SharedCtor();
   void SharedDtor();
   void SetCachedSize(int size) const final;
-  void InternalSwap(basicResponse* other);
+  void InternalSwap(basicCommonResponse* other);
 
   private:
   friend class ::PROTOBUF_NAMESPACE_ID::internal::AnyMetadata;
   static ::PROTOBUF_NAMESPACE_ID::StringPiece FullMessageName() {
-    return "Fy_mq.basicResponse";
+    return "Fy_mq.basicCommonResponse";
   }
   protected:
-  explicit basicResponse(::PROTOBUF_NAMESPACE_ID::Arena* arena,
+  explicit basicCommonResponse(::PROTOBUF_NAMESPACE_ID::Arena* arena,
                        bool is_message_owned = false);
   public:
 
@@ -2925,7 +2925,7 @@ class basicResponse final :
   void _internal_set_ok(bool value);
   public:
 
-  // @@protoc_insertion_point(class_scope:Fy_mq.basicResponse)
+  // @@protoc_insertion_point(class_scope:Fy_mq.basicCommonResponse)
  private:
   class _Internal;
 
@@ -5571,44 +5571,44 @@ inline void basicConsumeResponse::set_allocated_properties(::Fy_mq::BasicPropert
 
 // -------------------------------------------------------------------
 
-// basicResponse
+// basicCommonResponse
 
 // string rid = 1;
-inline void basicResponse::clear_rid() {
+inline void basicCommonResponse::clear_rid() {
   rid_.ClearToEmpty();
 }
-inline const std::string& basicResponse::rid() const {
-  // @@protoc_insertion_point(field_get:Fy_mq.basicResponse.rid)
+inline const std::string& basicCommonResponse::rid() const {
+  // @@protoc_insertion_point(field_get:Fy_mq.basicCommonResponse.rid)
   return _internal_rid();
 }
 template <typename ArgT0, typename... ArgT>
 inline PROTOBUF_ALWAYS_INLINE
-void basicResponse::set_rid(ArgT0&& arg0, ArgT... args) {
+void basicCommonResponse::set_rid(ArgT0&& arg0, ArgT... args) {
  
  rid_.Set(static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
-  // @@protoc_insertion_point(field_set:Fy_mq.basicResponse.rid)
+  // @@protoc_insertion_point(field_set:Fy_mq.basicCommonResponse.rid)
 }
-inline std::string* basicResponse::mutable_rid() {
+inline std::string* basicCommonResponse::mutable_rid() {
   std::string* _s = _internal_mutable_rid();
-  // @@protoc_insertion_point(field_mutable:Fy_mq.basicResponse.rid)
+  // @@protoc_insertion_point(field_mutable:Fy_mq.basicCommonResponse.rid)
   return _s;
 }
-inline const std::string& basicResponse::_internal_rid() const {
+inline const std::string& basicCommonResponse::_internal_rid() const {
   return rid_.Get();
 }
-inline void basicResponse::_internal_set_rid(const std::string& value) {
+inline void basicCommonResponse::_internal_set_rid(const std::string& value) {
   
   rid_.Set(value, GetArenaForAllocation());
 }
-inline std::string* basicResponse::_internal_mutable_rid() {
+inline std::string* basicCommonResponse::_internal_mutable_rid() {
   
   return rid_.Mutable(GetArenaForAllocation());
 }
-inline std::string* basicResponse::release_rid() {
-  // @@protoc_insertion_point(field_release:Fy_mq.basicResponse.rid)
+inline std::string* basicCommonResponse::release_rid() {
+  // @@protoc_insertion_point(field_release:Fy_mq.basicCommonResponse.rid)
   return rid_.Release();
 }
-inline void basicResponse::set_allocated_rid(std::string* rid) {
+inline void basicCommonResponse::set_allocated_rid(std::string* rid) {
   if (rid != nullptr) {
     
   } else {
@@ -5620,45 +5620,45 @@ inline void basicResponse::set_allocated_rid(std::string* rid) {
     rid_.Set("", GetArenaForAllocation());
   }
 #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
-  // @@protoc_insertion_point(field_set_allocated:Fy_mq.basicResponse.rid)
+  // @@protoc_insertion_point(field_set_allocated:Fy_mq.basicCommonResponse.rid)
 }
 
 // string cid = 2;
-inline void basicResponse::clear_cid() {
+inline void basicCommonResponse::clear_cid() {
   cid_.ClearToEmpty();
 }
-inline const std::string& basicResponse::cid() const {
-  // @@protoc_insertion_point(field_get:Fy_mq.basicResponse.cid)
+inline const std::string& basicCommonResponse::cid() const {
+  // @@protoc_insertion_point(field_get:Fy_mq.basicCommonResponse.cid)
   return _internal_cid();
 }
 template <typename ArgT0, typename... ArgT>
 inline PROTOBUF_ALWAYS_INLINE
-void basicResponse::set_cid(ArgT0&& arg0, ArgT... args) {
+void basicCommonResponse::set_cid(ArgT0&& arg0, ArgT... args) {
  
  cid_.Set(static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
-  // @@protoc_insertion_point(field_set:Fy_mq.basicResponse.cid)
+  // @@protoc_insertion_point(field_set:Fy_mq.basicCommonResponse.cid)
 }
-inline std::string* basicResponse::mutable_cid() {
+inline std::string* basicCommonResponse::mutable_cid() {
   std::string* _s = _internal_mutable_cid();
-  // @@protoc_insertion_point(field_mutable:Fy_mq.basicResponse.cid)
+  // @@protoc_insertion_point(field_mutable:Fy_mq.basicCommonResponse.cid)
   return _s;
 }
-inline const std::string& basicResponse::_internal_cid() const {
+inline const std::string& basicCommonResponse::_internal_cid() const {
   return cid_.Get();
 }
-inline void basicResponse::_internal_set_cid(const std::string& value) {
+inline void basicCommonResponse::_internal_set_cid(const std::string& value) {
   
   cid_.Set(value, GetArenaForAllocation());
 }
-inline std::string* basicResponse::_internal_mutable_cid() {
+inline std::string* basicCommonResponse::_internal_mutable_cid() {
   
   return cid_.Mutable(GetArenaForAllocation());
 }
-inline std::string* basicResponse::release_cid() {
-  // @@protoc_insertion_point(field_release:Fy_mq.basicResponse.cid)
+inline std::string* basicCommonResponse::release_cid() {
+  // @@protoc_insertion_point(field_release:Fy_mq.basicCommonResponse.cid)
   return cid_.Release();
 }
-inline void basicResponse::set_allocated_cid(std::string* cid) {
+inline void basicCommonResponse::set_allocated_cid(std::string* cid) {
   if (cid != nullptr) {
     
   } else {
@@ -5670,27 +5670,27 @@ inline void basicResponse::set_allocated_cid(std::string* cid) {
     cid_.Set("", GetArenaForAllocation());
   }
 #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
-  // @@protoc_insertion_point(field_set_allocated:Fy_mq.basicResponse.cid)
+  // @@protoc_insertion_point(field_set_allocated:Fy_mq.basicCommonResponse.cid)
 }
 
 // bool ok = 3;
-inline void basicResponse::clear_ok() {
+inline void basicCommonResponse::clear_ok() {
   ok_ = false;
 }
-inline bool basicResponse::_internal_ok() const {
+inline bool basicCommonResponse::_internal_ok() const {
   return ok_;
 }
-inline bool basicResponse::ok() const {
-  // @@protoc_insertion_point(field_get:Fy_mq.basicResponse.ok)
+inline bool basicCommonResponse::ok() const {
+  // @@protoc_insertion_point(field_get:Fy_mq.basicCommonResponse.ok)
   return _internal_ok();
 }
-inline void basicResponse::_internal_set_ok(bool value) {
+inline void basicCommonResponse::_internal_set_ok(bool value) {
   
   ok_ = value;
 }
-inline void basicResponse::set_ok(bool value) {
+inline void basicCommonResponse::set_ok(bool value) {
   _internal_set_ok(value);
-  // @@protoc_insertion_point(field_set:Fy_mq.basicResponse.ok)
+  // @@protoc_insertion_point(field_set:Fy_mq.basicCommonResponse.ok)
 }
 
 #ifdef __GNUC__
