@@ -1,0 +1,50 @@
+# C/C++ build directories
+build/
+cmake-build-*/
+out/
+bin/
+obj/
+Debug/
+Release/
+
+# Compiled objects and libraries
+*.o
+*.obj
+*.lo
+*.a
+*.so
+*.so.*
+*.dll
+*.dylib
+*.exe
+*.out
+
+# Project executables produced by the existing Makefiles
+/mqclient/consume_client
+/mqclient/publish_client
+/mqserver/mqserver
+/mqdemo/future/async
+/mqdemo/future/packaged_task
+/mqdemo/future/promise
+/mqdemo/future/threadpool
+/mqdemo/log/log
+/mqdemo/muduo/dict/dict_client
+/mqdemo/muduo/dict/dict_server
+/mqdemo/muduo/protobuf/client
+/mqdemo/muduo/protobuf/server
+/mqdemo/protobuf/main
+/mqdemo/random/random
+/mqdemo/split/split
+/mqdemo/sqlite3/main
+
+# Generated and local runtime files
+*.d
+*.gcda
+*.gcno
+*.gcov
+compile_commands.json
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+!**/makefile
