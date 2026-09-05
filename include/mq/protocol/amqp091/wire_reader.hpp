@@ -18,6 +18,7 @@ public:
 
     size_t position() const { return position_; }
     size_t remaining() const { return bytes_.size() - position_; }
+    std::string_view bytes() const { return bytes_; }
 
 private:
     bool canRead(size_t count) const;

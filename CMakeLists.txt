@@ -82,6 +82,9 @@ endif()
 
 add_library(amqp091_protocol STATIC
     src/protocol/amqp091/frame_codec.cpp
+    src/protocol/amqp091/fields.cpp
+    src/protocol/amqp091/connection_methods.cpp
+    src/protocol/amqp091/connection_session.cpp
     src/protocol/amqp091/wire_reader.cpp
     src/protocol/amqp091/wire_writer.cpp
 )
@@ -91,6 +94,16 @@ target_include_directories(amqp091_protocol PUBLIC
 target_compile_features(amqp091_protocol PUBLIC cxx_std_17)
 target_compile_options(amqp091_protocol PRIVATE
     $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic>
+)
+
+add_executable(amqp_server
+    src/amqp_server_main.cpp
+    src/transport/amqp_connection.cpp
+)
+target_link_libraries(amqp_server PRIVATE
+    mq_compile_options
+    amqp091_protocol
+    mq_muduo
 )
 
 if(MQ_BUILD_TESTS)
@@ -106,6 +119,25 @@ if(MQ_BUILD_TESTS)
         target_link_libraries(wire_types_test PRIVATE amqp091_protocol GTest::gtest)
         target_compile_features(wire_types_test PRIVATE cxx_std_17)
         add_test(NAME wire_types_test COMMAND wire_types_test)
+
+        add_executable(fields_test tests/protocol/fields_test.cpp)
+        target_link_libraries(fields_test PRIVATE amqp091_protocol GTest::gtest)
+        target_compile_features(fields_test PRIVATE cxx_std_17)
+        add_test(NAME fields_test COMMAND fields_test)
+
+        add_executable(connection_methods_test
+            tests/protocol/connection_methods_test.cpp)
+        target_link_libraries(connection_methods_test PRIVATE
+            amqp091_protocol GTest::gtest)
+        target_compile_features(connection_methods_test PRIVATE cxx_std_17)
+        add_test(NAME connection_methods_test COMMAND connection_methods_test)
+
+        add_executable(connection_session_test
+            tests/protocol/connection_session_test.cpp)
+        target_link_libraries(connection_session_test PRIVATE
+            amqp091_protocol GTest::gtest)
+        target_compile_features(connection_session_test PRIVATE cxx_std_17)
+        add_test(NAME connection_session_test COMMAND connection_session_test)
 
         set(MQ_GTEST_SOURCES
             mq_bindingtest

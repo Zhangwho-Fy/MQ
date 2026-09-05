@@ -17,6 +17,7 @@ public:
     DecodeResult feed(std::string_view bytes, std::vector<Frame>& frames);
     void reset();
     uint32_t frameMax() const { return frame_max_; }
+    void setFrameMax(uint32_t frame_max);
 
 private:
     DecodeResult error(const std::string& message);

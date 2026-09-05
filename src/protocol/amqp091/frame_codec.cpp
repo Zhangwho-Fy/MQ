@@ -78,6 +78,13 @@ void FrameDecoder::reset() {
     error_message_.clear();
 }
 
+void FrameDecoder::setFrameMax(uint32_t frame_max) {
+    if (frame_max_ != 0 && frame_max < kFrameMinSize) {
+        throw FrameCodecError("frame-max is smaller than AMQP frame-min-size");
+    }
+    frame_max_ = frame_max;
+}
+
 std::string FrameEncoder::encode(const Frame& frame, uint32_t frame_max) {
     if (!isKnownFrameType(frame.type)) {
         throw FrameCodecError("unknown AMQP frame type");
