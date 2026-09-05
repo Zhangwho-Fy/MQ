@@ -21,8 +21,8 @@ CLOSE = 50
 CLOSE_OK = 51
 
 
-def frame(payload: bytes, channel: int = 0) -> bytes:
-    return struct.pack(">BHI", FRAME_METHOD, channel, len(payload)) + payload + bytes([FRAME_END])
+def frame(payload: bytes, channel: int = 0, frame_type: int = FRAME_METHOD) -> bytes:
+    return struct.pack(">BHI", frame_type, channel, len(payload)) + payload + bytes([FRAME_END])
 
 
 def method(class_id: int, method_id: int, args: bytes, channel: int = 0) -> bytes:
@@ -121,6 +121,26 @@ def queue_bind_args(queue: str, exchange: str, routing_key: str) -> bytes:
     )
 
 
+def basic_publish_args(exchange: str, routing_key: str) -> bytes:
+    return (
+        struct.pack(">H", 0)  # ticket
+        + shortstr(exchange)
+        + shortstr(routing_key)
+        + b"\x00"  # mandatory/immediate bits
+    )
+
+
+def content_header(body: bytes) -> bytes:
+    return (
+        struct.pack(">HHQ", 60, 0, len(body))
+        + struct.pack(">H", 0)  # no basic properties
+    )
+
+
+def queue_purge_args(queue: str) -> bytes:
+    return struct.pack(">H", 0) + shortstr(queue) + b"\x00"
+
+
 def check_method(payload: bytes, expected_class: int, expected_method: int) -> None:
     class_id, method_id = struct.unpack(">HH", payload[:4])
     if class_id != expected_class or method_id != expected_method:
@@ -169,8 +189,20 @@ def main() -> int:
         payload, channel = read_frame(sock)
         check_method(payload, 50, 21)  # queue.bind-ok
 
-        # basic.publish is not implemented yet; it must close only channel 1.
-        sock.sendall(method(60, 40, b"", channel=1))
+        body = b"hello"
+        sock.sendall(method(60, 40, basic_publish_args("", "q1"), channel=1))
+        sock.sendall(frame(content_header(body), channel=1, frame_type=2))
+        sock.sendall(frame(body, channel=1, frame_type=3))
+
+        sock.sendall(method(50, 30, queue_purge_args("q1"), channel=1))
+        payload, channel = read_frame(sock)
+        check_method(payload, 50, 31)  # queue.purge-ok
+        purged = struct.unpack(">I", payload[4:8])[0]
+        if purged != 1:
+            raise AssertionError(f"expected one purged message, got {purged}")
+
+        # basic.consume is not implemented yet; it must close only channel 1.
+        sock.sendall(method(60, 20, b"", channel=1))
         payload, channel = read_frame(sock)
         check_method(payload, 20, 40)  # channel.close
         reply_code = struct.unpack(">H", payload[4:6])[0]

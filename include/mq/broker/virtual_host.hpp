@@ -2,6 +2,7 @@
 #define MQ_BROKER_VIRTUAL_HOST_HPP
 
 #include <cstdint>
+#include <deque>
 #include <map>
 #include <set>
 #include <string>
@@ -31,6 +32,11 @@ struct QueueSpec {
     bool auto_delete = false;
 };
 
+struct Message {
+    std::string body;
+    bool persistent = false;
+};
+
 // In-memory virtual host used by the AMQP method layer until persistence is
 // introduced. It deliberately tracks multiple binding keys per (exchange,
 // queue) pair, which the legacy binding table could not represent.
@@ -48,8 +54,14 @@ public:
     BrokerResult deleteQueue(const std::string& name, bool if_unused,
                              bool if_empty);
     BrokerResult purgeQueue(const std::string& name);
+    uint32_t messageCount(const std::string& name) const;
     bool hasQueue(const std::string& name) const;
     size_t queueCount() const { return queues_.size(); }
+
+    BrokerResult publish(const std::string& exchange,
+                         const std::string& routing_key,
+                         const Message& message,
+                         size_t* delivered = nullptr);
 
     BrokerResult bind(const std::string& exchange, const std::string& queue,
                       const std::string& routing_key);
@@ -62,6 +74,7 @@ public:
 private:
     struct QueueEntry {
         QueueSpec spec;
+        std::deque<Message> messages;
         std::set<std::pair<std::string, std::string>> bindings;
     };
 

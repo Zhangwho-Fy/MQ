@@ -3,6 +3,7 @@
 
 #include "connection_methods.hpp"
 #include "channel_methods.hpp"
+#include "basic_methods.hpp"
 #include "exchange_methods.hpp"
 #include "frame_codec.hpp"
 #include "queue_methods.hpp"
@@ -76,8 +77,21 @@ private:
         bool flow_active = true;
     };
 
+    struct PendingContent {
+        BasicPublish publish;
+        ContentHeaderInfo header;
+        std::string header_payload;
+        std::string body;
+        bool header_received = false;
+    };
+
     SessionResult processFrames(std::string_view bytes);
     SessionResult handleMethod(uint16_t channel, std::string_view payload);
+    SessionResult handleBasicMethod(uint16_t channel,
+                                    const MethodHeader& header);
+    SessionResult handleContentFrame(uint16_t channel, const Frame& frame);
+    SessionResult finishPendingContent(uint16_t channel,
+                                       PendingContent& pending);
     SessionResult handleConnectionMethod(const MethodHeader& header);
     SessionResult handleChannelMethod(uint16_t channel,
                                       const MethodHeader& header);
@@ -108,6 +122,7 @@ private:
     uint32_t frame_max_ = 0;
     uint16_t heartbeat_ = 0;
     std::map<uint16_t, ChannelState> channels_;
+    std::map<uint16_t, PendingContent> pending_content_;
     std::shared_ptr<broker::VirtualHost> virtual_host_;
     uint64_t generated_queue_seq_ = 0;
 };

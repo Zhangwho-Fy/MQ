@@ -79,11 +79,14 @@ SessionResult ConnectionSession::processFrames(std::string_view bytes) {
         if (frame.type == kFrameHeartbeat) {
             continue;
         }
-        if (frame.type != kFrameMethod) {
-            return fail(
-                "unexpected non-method frame before content support", 505);
+        if (frame.type == kFrameMethod) {
+            const SessionResult result =
+                handleMethod(frame.channel, frame.payload);
+            if (!result.ok) return result;
+            continue;
         }
-        const SessionResult result = handleMethod(frame.channel, frame.payload);
+        const SessionResult result =
+            handleContentFrame(frame.channel, frame);
         if (!result.ok) return result;
     }
     return SessionResult{};
@@ -128,6 +131,9 @@ SessionResult ConnectionSession::handleMethod(uint16_t channel,
         }
         if (header.class_id == kQueueClassId) {
             return handleQueueMethod(channel, header);
+        }
+        if (header.class_id == kBasicClassId) {
+            return handleBasicMethod(channel, header);
         }
     }
     return sendChannelError(channel, 540, header.class_id, header.method_id,
@@ -238,7 +244,7 @@ SessionResult ConnectionSession::handleQueueMethod(
         if (!declare.no_wait) {
             QueueDeclareOk ok;
             ok.queue = declare.queue;
-            ok.message_count = 0;
+            ok.message_count = virtual_host_->messageCount(declare.queue);
             ok.consumer_count = 0;
             return sendMethodOnChannel(
                 channel, kQueueClassId,
@@ -307,10 +313,12 @@ SessionResult ConnectionSession::handleQueueMethod(
                                     result.error);
         }
         if (!purge.no_wait) {
+            QueuePurgeOk ok;
+            ok.message_count = result.count;
             return sendMethodOnChannel(
                 channel, kQueueClassId,
                 static_cast<uint16_t>(QueueMethodId::PurgeOk),
-                encodeQueuePurgeOk(QueuePurgeOk{}));
+                encodeQueuePurgeOk(ok));
         }
         return SessionResult{};
     }
@@ -331,10 +339,12 @@ SessionResult ConnectionSession::handleQueueMethod(
                                     result.error);
         }
         if (!delete_queue.no_wait) {
+            QueueDeleteOk ok;
+            ok.message_count = result.count;
             return sendMethodOnChannel(
                 channel, kQueueClassId,
                 static_cast<uint16_t>(QueueMethodId::DeleteOk),
-                encodeQueueDeleteOk(QueueDeleteOk{}));
+                encodeQueueDeleteOk(ok));
         }
         return SessionResult{};
     }
@@ -342,6 +352,114 @@ SessionResult ConnectionSession::handleQueueMethod(
     return sendChannelError(channel, 540, kQueueClassId,
                             static_cast<uint16_t>(method),
                             "queue method not implemented");
+}
+
+SessionResult ConnectionSession::handleBasicMethod(
+    uint16_t channel, const MethodHeader& header) {
+    const auto method = static_cast<BasicMethodId>(header.method_id);
+
+    if (method == BasicMethodId::Publish) {
+        BasicPublish publish;
+        std::string error;
+        if (!decodeBasicPublish(header.arguments, publish, error)) {
+            return sendChannelError(channel, 502, kBasicClassId,
+                                    static_cast<uint16_t>(method),
+                                    "invalid basic.publish");
+        }
+        PendingContent pending;
+        pending.publish = std::move(publish);
+        pending_content_[channel] = std::move(pending);
+        return SessionResult{};
+    }
+
+    return sendChannelError(channel, 540, kBasicClassId,
+                            static_cast<uint16_t>(method),
+                            "basic method not implemented");
+}
+
+SessionResult ConnectionSession::handleContentFrame(uint16_t channel,
+                                                    const Frame& frame) {
+    auto it = pending_content_.find(channel);
+    if (it == pending_content_.end()) {
+        return fail("content frame without a pending publish", 505);
+    }
+    PendingContent& pending = it->second;
+
+    if (frame.type == kFrameHeader) {
+        if (pending.header_received) {
+            return fail("duplicate content header frame", 505);
+        }
+        ContentHeaderInfo info;
+        std::string error;
+        if (!decodeContentHeader(frame.payload, info, error)) {
+            return fail(error, 502);
+        }
+        pending.header = info;
+        pending.header_payload = frame.payload;
+        pending.header_received = true;
+        return SessionResult{};
+    }
+
+    if (frame.type == kFrameBody) {
+        if (!pending.header_received) {
+            return fail("content body before content header", 505);
+        }
+        pending.body.append(frame.payload.data(), frame.payload.size());
+        if (pending.body.size() > pending.header.body_size) {
+            return fail("content body exceeds declared body size", 505);
+        }
+        if (pending.body.size() == pending.header.body_size) {
+            return finishPendingContent(channel, pending);
+        }
+        return SessionResult{};
+    }
+
+    return fail("unexpected frame while receiving content", 505);
+}
+
+SessionResult ConnectionSession::finishPendingContent(
+    uint16_t channel, PendingContent& pending) {
+    broker::Message message;
+    message.body = std::move(pending.body);
+    message.persistent = pending.header.persistent;
+
+    size_t delivered = 0;
+    broker::BrokerResult result = virtual_host_->publish(
+        pending.publish.exchange, pending.publish.routing_key, message,
+        &delivered);
+    if (!result.ok) {
+        return sendChannelError(channel, result.reply_code, kBasicClassId,
+                                static_cast<uint16_t>(
+                                    BasicMethodId::Publish),
+                                result.error);
+    }
+
+    const bool returned = pending.publish.mandatory && delivered == 0;
+    const std::string header_payload = std::move(pending.header_payload);
+    pending_content_.erase(channel);
+
+    if (returned) {
+        BasicReturn ret;
+        ret.reply_code = 312;
+        ret.reply_text = "NO_ROUTE";
+        ret.exchange = pending.publish.exchange;
+        ret.routing_key = pending.publish.routing_key;
+        sendMethodOnChannel(
+            channel, kBasicClassId,
+            static_cast<uint16_t>(BasicMethodId::Return),
+            encodeBasicReturn(ret));
+        sendFrame(kFrameHeader, channel, header_payload);
+        const size_t max_body = frame_max_ > 8 ? frame_max_ - 8 : 0;
+        size_t offset = 0;
+        while (offset < message.body.size()) {
+            const size_t count =
+                std::min(max_body, message.body.size() - offset);
+            sendFrame(kFrameBody, channel,
+                      std::string_view(message.body).substr(offset, count));
+            offset += count;
+        }
+    }
+    return SessionResult{};
 }
 
 SessionResult ConnectionSession::handleChannelMethod(

@@ -89,6 +89,83 @@ TEST(VirtualHostTest, MissingEntitiesReturnNotFound) {
     EXPECT_FALSE(host.bind("nope", "q1", "k").ok);
 }
 
+TEST(VirtualHostTest, RoutesDirectMessages) {
+    VirtualHost host;
+    ASSERT_TRUE(host.declareExchange(
+                    ExchangeSpec{"ex", "direct", false, false, false})
+                    .ok);
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q1", false, false, false}).ok);
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q2", false, false, false}).ok);
+    ASSERT_TRUE(host.bind("ex", "q1", "a").ok);
+    ASSERT_TRUE(host.bind("ex", "q2", "b").ok);
+
+    size_t delivered = 0;
+    ASSERT_TRUE(host
+                    .publish("ex", "a", Message{"hello", false}, &delivered)
+                    .ok);
+    EXPECT_EQ(delivered, 1U);
+    EXPECT_EQ(host.messageCount("q1"), 1U);
+    EXPECT_EQ(host.messageCount("q2"), 0U);
+}
+
+TEST(VirtualHostTest, RoutesFanoutToAllBoundQueues) {
+    VirtualHost host;
+    ASSERT_TRUE(host.declareExchange(
+                    ExchangeSpec{"ex", "fanout", false, false, false})
+                    .ok);
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q1", false, false, false}).ok);
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q2", false, false, false}).ok);
+    ASSERT_TRUE(host.bind("ex", "q1", "ignored").ok);
+    ASSERT_TRUE(host.bind("ex", "q2", "ignored").ok);
+
+    size_t delivered = 0;
+    ASSERT_TRUE(host.publish("ex", "", Message{"hello", false}, &delivered).ok);
+    EXPECT_EQ(delivered, 2U);
+    EXPECT_EQ(host.messageCount("q1"), 1U);
+    EXPECT_EQ(host.messageCount("q2"), 1U);
+}
+
+TEST(VirtualHostTest, RoutesTopicBindings) {
+    VirtualHost host;
+    ASSERT_TRUE(host.declareExchange(
+                    ExchangeSpec{"ex", "topic", false, false, false})
+                    .ok);
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q1", false, false, false}).ok);
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q2", false, false, false}).ok);
+    ASSERT_TRUE(host.bind("ex", "q1", "news.#").ok);
+    ASSERT_TRUE(host.bind("ex", "q2", "sport.*").ok);
+
+    size_t delivered = 0;
+    ASSERT_TRUE(
+        host.publish("ex", "news.music", Message{"hello", false}, &delivered)
+            .ok);
+    EXPECT_EQ(delivered, 1U);
+    EXPECT_EQ(host.messageCount("q1"), 1U);
+    EXPECT_EQ(host.messageCount("q2"), 0U);
+}
+
+TEST(VirtualHostTest, PublishesThroughDefaultExchange) {
+    VirtualHost host;
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q1", false, false, false}).ok);
+    size_t delivered = 0;
+    ASSERT_TRUE(host.publish("", "q1", Message{"hello", false}, &delivered).ok);
+    EXPECT_EQ(delivered, 1U);
+    EXPECT_EQ(host.messageCount("q1"), 1U);
+}
+
+TEST(VirtualHostTest, PurgeRemovesMessagesAndReportsCount) {
+    VirtualHost host;
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q1", false, false, false}).ok);
+    ASSERT_TRUE(host.publish("", "q1", Message{"a", false}).ok);
+    ASSERT_TRUE(host.publish("", "q1", Message{"b", false}).ok);
+    EXPECT_EQ(host.messageCount("q1"), 2U);
+
+    const BrokerResult result = host.purgeQueue("q1");
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_EQ(result.count, 2U);
+    EXPECT_EQ(host.messageCount("q1"), 0U);
+}
+
 }  // namespace mq::broker
 
 int main(int argc, char** argv) {

@@ -1,5 +1,7 @@
 #include "mq/broker/virtual_host.hpp"
 
+#include <vector>
+
 namespace mq::broker {
 
 namespace {
@@ -7,6 +9,52 @@ namespace {
 bool validExchangeType(const std::string& type) {
     return type == "direct" || type == "fanout" || type == "topic" ||
            type == "headers";
+}
+
+bool topicMatches(const std::string& binding_key,
+                  const std::string& routing_key) {
+    std::vector<std::string> bkeys;
+    std::vector<std::string> rkeys;
+    size_t pos = 0;
+    while (pos <= binding_key.size()) {
+        const size_t dot = binding_key.find('.', pos);
+        if (dot == std::string::npos) {
+            bkeys.push_back(binding_key.substr(pos));
+            break;
+        }
+        bkeys.push_back(binding_key.substr(pos, dot - pos));
+        pos = dot + 1;
+    }
+    pos = 0;
+    while (pos <= routing_key.size()) {
+        const size_t dot = routing_key.find('.', pos);
+        if (dot == std::string::npos) {
+            rkeys.push_back(routing_key.substr(pos));
+            break;
+        }
+        rkeys.push_back(routing_key.substr(pos, dot - pos));
+        pos = dot + 1;
+    }
+
+    std::vector<bool> dp(bkeys.size() + 1, false);
+    dp[0] = true;
+    if (!bkeys.empty() && bkeys[0] == "#") dp[1] = true;
+    for (size_t i = 0; i < rkeys.size(); ++i) {
+        if (i > 0) dp[0] = false;
+        bool previous = dp[0];
+        for (size_t j = 0; j < bkeys.size(); ++j) {
+            const bool current = dp[j + 1];
+            if (rkeys[i] == bkeys[j] || bkeys[j] == "*") {
+                dp[j + 1] = previous;
+            } else if (bkeys[j] == "#") {
+                dp[j + 1] = dp[j] || dp[j + 1];
+            } else {
+                dp[j + 1] = false;
+            }
+            previous = current;
+        }
+    }
+    return bkeys.empty() ? false : dp[bkeys.size()];
 }
 
 }  // namespace
@@ -92,16 +140,27 @@ BrokerResult VirtualHost::deleteQueue(const std::string& name, bool if_unused,
     if (it == queues_.end()) {
         return BrokerResult{false, kNotFound, "queue not found", 0};
     }
-    // Message/consumer counts do not exist yet, so if_empty/if_unused are
-    // always satisfied until the Basic class is implemented.
-    (void)if_empty;
-    (void)if_unused;
+    if (if_empty && !it->second.messages.empty()) {
+        return BrokerResult{false, kPreconditionFailed,
+                            "queue is not empty", 0};
+    }
+    if (if_unused) {
+        // Consumer tracking is introduced with Basic.Consume.
+    }
+    const uint32_t removed =
+        static_cast<uint32_t>(it->second.messages.size());
     queues_.erase(it);
-    return BrokerResult{};
+    return BrokerResult{true, 0, "", removed};
 }
 
 bool VirtualHost::hasQueue(const std::string& name) const {
     return queues_.find(name) != queues_.end();
+}
+
+uint32_t VirtualHost::messageCount(const std::string& name) const {
+    const auto it = queues_.find(name);
+    if (it == queues_.end()) return 0;
+    return static_cast<uint32_t>(it->second.messages.size());
 }
 
 BrokerResult VirtualHost::purgeQueue(const std::string& name) {
@@ -109,7 +168,57 @@ BrokerResult VirtualHost::purgeQueue(const std::string& name) {
     if (it == queues_.end()) {
         return BrokerResult{false, kNotFound, "queue not found", 0};
     }
-    // Messages are introduced with the Basic class, so nothing is removed yet.
+    const uint32_t removed =
+        static_cast<uint32_t>(it->second.messages.size());
+    it->second.messages.clear();
+    return BrokerResult{true, 0, "", removed};
+}
+
+BrokerResult VirtualHost::publish(const std::string& exchange,
+                                  const std::string& routing_key,
+                                  const Message& message,
+                                  size_t* delivered) {
+    size_t count = 0;
+
+    const auto routeToQueue = [&](const std::string& queue) {
+        const auto it = queues_.find(queue);
+        if (it == queues_.end()) return;
+        it->second.messages.push_back(message);
+        ++count;
+    };
+
+    if (exchange.empty()) {
+        // Default exchange: queue name equals routing key.
+        if (hasQueue(routing_key)) {
+            routeToQueue(routing_key);
+        }
+        if (delivered != nullptr) *delivered = count;
+        return BrokerResult{};
+    }
+
+    const auto exchange_it = exchanges_.find(exchange);
+    if (exchange_it == exchanges_.end()) {
+        return BrokerResult{false, kNotFound, "exchange not found", 0};
+    }
+
+    const std::string& type = exchange_it->second.spec.type;
+    for (auto& queue_entry : queues_) {
+        bool matched = false;
+        for (const auto& binding : queue_entry.second.bindings) {
+            if (binding.first != exchange) continue;
+            if (type == "fanout") {
+                matched = true;
+            } else if (type == "direct") {
+                matched = binding.second == routing_key;
+            } else if (type == "topic") {
+                matched = topicMatches(binding.second, routing_key);
+            }
+            if (matched) break;
+        }
+        if (matched) routeToQueue(queue_entry.first);
+    }
+
+    if (delivered != nullptr) *delivered = count;
     return BrokerResult{};
 }
 

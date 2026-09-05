@@ -88,6 +88,7 @@ add_library(amqp091_protocol STATIC
     src/protocol/amqp091/channel_methods.cpp
     src/protocol/amqp091/exchange_methods.cpp
     src/protocol/amqp091/queue_methods.cpp
+    src/protocol/amqp091/basic_methods.cpp
     src/protocol/amqp091/wire_reader.cpp
     src/protocol/amqp091/wire_writer.cpp
 )
@@ -175,6 +176,12 @@ if(MQ_BUILD_TESTS)
             amqp091_protocol GTest::gtest)
         target_compile_features(queue_methods_test PRIVATE cxx_std_17)
         add_test(NAME queue_methods_test COMMAND queue_methods_test)
+
+        add_executable(basic_methods_test tests/protocol/basic_methods_test.cpp)
+        target_link_libraries(basic_methods_test PRIVATE
+            amqp091_protocol GTest::gtest)
+        target_compile_features(basic_methods_test PRIVATE cxx_std_17)
+        add_test(NAME basic_methods_test COMMAND basic_methods_test)
 
         add_executable(virtual_host_test tests/broker/virtual_host_test.cpp)
         target_link_libraries(virtual_host_test PRIVATE mq_broker GTest::gtest)
