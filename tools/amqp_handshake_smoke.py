@@ -21,12 +21,12 @@ CLOSE = 50
 CLOSE_OK = 51
 
 
-def frame(payload: bytes) -> bytes:
-    return struct.pack(">BHI", FRAME_METHOD, 0, len(payload)) + payload + bytes([FRAME_END])
+def frame(payload: bytes, channel: int = 0) -> bytes:
+    return struct.pack(">BHI", FRAME_METHOD, channel, len(payload)) + payload + bytes([FRAME_END])
 
 
-def method(class_id: int, method_id: int, args: bytes) -> bytes:
-    return frame(struct.pack(">HH", class_id, method_id) + args)
+def method(class_id: int, method_id: int, args: bytes, channel: int = 0) -> bytes:
+    return frame(struct.pack(">HH", class_id, method_id) + args, channel)
 
 
 def read_frame(sock: socket.socket) -> bytes:
@@ -38,9 +38,7 @@ def read_frame(sock: socket.socket) -> bytes:
     trailer = recv_exact(sock, 1)
     if trailer != bytes([FRAME_END]):
         raise AssertionError("missing frame-end octet")
-    if channel != 0:
-        raise AssertionError("connection method must use channel 0")
-    return payload
+    return payload, channel
 
 
 def recv_exact(sock: socket.socket, size: int) -> bytes:
@@ -93,11 +91,12 @@ def close_args(reply_code: int = 200) -> bytes:
     )
 
 
-def check_method(payload: bytes, expected_method: int) -> None:
+def check_method(payload: bytes, expected_class: int, expected_method: int) -> None:
     class_id, method_id = struct.unpack(">HH", payload[:4])
-    if class_id != CONNECTION or method_id != expected_method:
+    if class_id != expected_class or method_id != expected_method:
         raise AssertionError(
-            f"expected connection method {expected_method}, got {class_id}:{method_id}"
+            f"expected method {expected_class}:{expected_method}, "
+            f"got {class_id}:{method_id}"
         )
 
 
@@ -110,18 +109,36 @@ def main() -> int:
     with socket.create_connection((args.host, args.port), timeout=5) as sock:
         sock.sendall(AMQP_HEADER)
 
-        check_method(read_frame(sock), START)
+        payload, _ = read_frame(sock)
+        check_method(payload, CONNECTION, START)
         sock.sendall(method(CONNECTION, START_OK, start_ok_args()))
 
-        tune_payload = read_frame(sock)
-        check_method(tune_payload, TUNE)
+        tune_payload, _ = read_frame(sock)
+        check_method(tune_payload, CONNECTION, TUNE)
         channel_max, frame_max, heartbeat = struct.unpack(">HIH", tune_payload[4:])
         sock.sendall(method(CONNECTION, TUNE_OK, tune_ok_args(channel_max, frame_max, heartbeat)))
         sock.sendall(method(CONNECTION, OPEN, open_args("/")))
 
-        check_method(read_frame(sock), OPEN_OK)
+        payload, _ = read_frame(sock)
+        check_method(payload, CONNECTION, OPEN_OK)
+        sock.sendall(method(20, 10, b"", channel=1))  # channel.open
+        payload, channel = read_frame(sock)
+        check_method(payload, 20, 11)  # channel.open-ok
+        if channel != 1:
+            raise AssertionError(f"open-ok must use channel 1, got {channel}")
+
+        # basic.publish is not implemented yet; it must close only channel 1.
+        sock.sendall(method(60, 40, b"", channel=1))
+        payload, channel = read_frame(sock)
+        check_method(payload, 20, 40)  # channel.close
+        reply_code = struct.unpack(">H", payload[4:6])[0]
+        if reply_code != 540:
+            raise AssertionError(f"expected not-implemented 540, got {reply_code}")
+        sock.sendall(method(20, 41, b"", channel=1))  # channel.close-ok
+
         sock.sendall(method(CONNECTION, CLOSE, close_args()))
-        check_method(read_frame(sock), CLOSE_OK)
+        payload, _ = read_frame(sock)
+        check_method(payload, CONNECTION, CLOSE_OK)
 
     print("AMQP handshake smoke test passed")
     return 0

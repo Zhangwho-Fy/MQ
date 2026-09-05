@@ -2,10 +2,12 @@
 #define MQ_PROTOCOL_AMQP091_CONNECTION_SESSION_HPP
 
 #include "connection_methods.hpp"
+#include "channel_methods.hpp"
 #include "frame_codec.hpp"
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <string>
 #include <string_view>
 
@@ -54,11 +56,29 @@ public:
     uint16_t channelMax() const { return channel_max_; }
     uint32_t frameMax() const { return frame_max_; }
     uint16_t heartbeat() const { return heartbeat_; }
+    bool isChannelOpen(uint16_t channel) const;
+    size_t openChannelCount() const;
 
 private:
+    enum class ChannelLifecycle {
+        kOpen,
+        kClosing,
+    };
+
+    struct ChannelState {
+        ChannelLifecycle lifecycle = ChannelLifecycle::kOpen;
+        bool flow_active = true;
+    };
+
     SessionResult processFrames(std::string_view bytes);
     SessionResult handleMethod(uint16_t channel, std::string_view payload);
     SessionResult handleConnectionMethod(const MethodHeader& header);
+    SessionResult handleChannelMethod(uint16_t channel,
+                                      const MethodHeader& header);
+    SessionResult sendChannelError(uint16_t channel, uint16_t reply_code,
+                                   uint16_t failing_class_id,
+                                   uint16_t failing_method_id,
+                                   const std::string& text);
     SessionResult sendMethod(uint16_t class_id, uint16_t method_id,
                              const std::string& arguments);
     SessionResult fail(const std::string& message, uint16_t reply_code = 0,
@@ -74,6 +94,7 @@ private:
     uint16_t channel_max_ = 0;
     uint32_t frame_max_ = 0;
     uint16_t heartbeat_ = 0;
+    std::map<uint16_t, ChannelState> channels_;
 };
 
 }  // namespace mq::amqp091

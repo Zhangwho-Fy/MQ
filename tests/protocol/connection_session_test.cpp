@@ -9,16 +9,23 @@ namespace mq::amqp091 {
 namespace {
 
 std::string encodeMethodFrame(uint16_t class_id, uint16_t method_id,
-                              const std::string& arguments) {
+                              const std::string& arguments,
+                              uint16_t channel = 0) {
     const std::string method_payload =
         encodeMethodHeader(class_id, method_id, arguments);
     return FrameEncoder::encode(
-        Frame{kFrameMethod, 0, method_payload}, 131072);
+        Frame{kFrameMethod, channel, method_payload}, 131072);
 }
 
 bool decodeCapturedMethod(const std::string& frame_bytes, MethodHeader& header,
-                          std::string& error) {
+                          std::string& error,
+                          uint16_t* channel_out = nullptr) {
     if (frame_bytes.size() < 8) return false;
+    if (channel_out != nullptr) {
+        *channel_out =
+            (static_cast<uint16_t>(static_cast<uint8_t>(frame_bytes[1])) << 8) |
+            static_cast<uint16_t>(static_cast<uint8_t>(frame_bytes[2]));
+    }
     const uint32_t payload_size =
         (static_cast<uint32_t>(static_cast<uint8_t>(frame_bytes[3])) << 24) |
         (static_cast<uint32_t>(static_cast<uint8_t>(frame_bytes[4])) << 16) |
@@ -36,6 +43,39 @@ ConnectionStartOk makeStartOk() {
     start_ok.response = std::string("\0guest\0guest", 12);
     start_ok.locale = "en_US";
     return start_ok;
+}
+
+void establishReady(ConnectionSession& session,
+                    std::vector<std::string>& sent) {
+    SessionResult result = session.feed(kAmqp091ProtocolHeader);
+    ASSERT_TRUE(result.ok) << result.error;
+    ASSERT_EQ(sent.size(), 1U);
+
+    result = session.feed(encodeMethodFrame(
+        kConnectionClassId,
+        static_cast<uint16_t>(ConnectionMethodId::StartOk),
+        encodeConnectionStartOk(makeStartOk())));
+    ASSERT_TRUE(result.ok) << result.error;
+    ASSERT_EQ(sent.size(), 2U);
+
+    ConnectionTune tune_ok;
+    tune_ok.channel_max = 1024;
+    tune_ok.frame_max = 65536;
+    tune_ok.heartbeat = 30;
+    ConnectionOpen open;
+    open.virtual_host = "/";
+    result = session.feed(
+        encodeMethodFrame(
+            kConnectionClassId,
+            static_cast<uint16_t>(ConnectionMethodId::TuneOk),
+            encodeConnectionTune(tune_ok)) +
+        encodeMethodFrame(
+            kConnectionClassId,
+            static_cast<uint16_t>(ConnectionMethodId::Open),
+            encodeConnectionOpen(open)));
+    ASSERT_TRUE(result.ok) << result.error;
+    ASSERT_EQ(sent.size(), 3U);
+    ASSERT_EQ(session.state(), ConnectionState::kReady);
 }
 
 }  // namespace
@@ -140,6 +180,146 @@ TEST(ConnectionSessionTest, RejectsWrongPassword) {
     ASSERT_TRUE(decodeConnectionClose(close_header.arguments, close, error))
         << error;
     EXPECT_EQ(close.reply_code, 403U);
+}
+
+TEST(ConnectionSessionTest, OpensAndClosesChannel) {
+    std::vector<std::string> sent;
+    ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    });
+    establishReady(session, sent);
+
+    const uint16_t channel = 1;
+    SessionResult result = session.feed(encodeMethodFrame(
+        kChannelClassId, static_cast<uint16_t>(ChannelMethodId::Open),
+        encodeChannelOpen(ChannelOpen{}), channel));
+    ASSERT_TRUE(result.ok) << result.error;
+    ASSERT_EQ(sent.size(), 4U);
+    ASSERT_TRUE(session.isChannelOpen(channel));
+    EXPECT_EQ(session.openChannelCount(), 1U);
+
+    MethodHeader header;
+    uint16_t response_channel = 0;
+    std::string error;
+    ASSERT_TRUE(decodeCapturedMethod(sent[3], header, error,
+                                     &response_channel))
+        << error;
+    EXPECT_EQ(response_channel, channel);
+    EXPECT_EQ(header.class_id, kChannelClassId);
+    EXPECT_EQ(header.method_id,
+              static_cast<uint16_t>(ChannelMethodId::OpenOk));
+
+    ChannelClose close;
+    close.reply_code = 200;
+    close.reply_text = "done";
+    result = session.feed(encodeMethodFrame(
+        kChannelClassId, static_cast<uint16_t>(ChannelMethodId::Close),
+        encodeChannelClose(close), channel));
+    ASSERT_TRUE(result.ok) << result.error;
+    ASSERT_EQ(sent.size(), 5U);
+    EXPECT_FALSE(session.isChannelOpen(channel));
+    EXPECT_EQ(session.openChannelCount(), 0U);
+    EXPECT_EQ(session.state(), ConnectionState::kReady);
+}
+
+TEST(ConnectionSessionTest, ChannelErrorDoesNotCloseConnection) {
+    std::vector<std::string> sent;
+    ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    });
+    establishReady(session, sent);
+
+    const uint16_t channel = 1;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Open),
+                        encodeChannelOpen(ChannelOpen{}), channel))
+                    .ok);
+    ASSERT_EQ(sent.size(), 4U);
+
+    // basic.publish is not implemented yet: it must close only the channel.
+    const uint16_t basic_class = 60;
+    const uint16_t publish_method = 40;
+    const SessionResult result = session.feed(encodeMethodFrame(
+        basic_class, publish_method, std::string(), channel));
+    ASSERT_TRUE(result.ok) << result.error;
+    ASSERT_EQ(sent.size(), 5U);
+    EXPECT_EQ(session.state(), ConnectionState::kReady);
+    EXPECT_FALSE(session.isChannelOpen(channel));
+
+    MethodHeader header;
+    std::string error;
+    ASSERT_TRUE(decodeCapturedMethod(sent[4], header, error)) << error;
+    EXPECT_EQ(header.class_id, kChannelClassId);
+    EXPECT_EQ(header.method_id,
+              static_cast<uint16_t>(ChannelMethodId::Close));
+    ChannelClose channel_close;
+    ASSERT_TRUE(decodeChannelClose(header.arguments, channel_close, error))
+        << error;
+    EXPECT_EQ(channel_close.reply_code, 540U);
+
+    // Complete the channel close handshake and verify the connection survives.
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::CloseOk), "",
+                        channel))
+                    .ok);
+    EXPECT_EQ(session.openChannelCount(), 0U);
+    EXPECT_EQ(session.state(), ConnectionState::kReady);
+}
+
+TEST(ConnectionSessionTest, RejectsMethodOnUnopenedChannel) {
+    std::vector<std::string> sent;
+    ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    });
+    establishReady(session, sent);
+
+    const uint16_t channel = 2;
+    const SessionResult result = session.feed(encodeMethodFrame(
+        kChannelClassId, static_cast<uint16_t>(ChannelMethodId::Flow),
+        encodeChannelFlow(ChannelFlow{false}), channel));
+    ASSERT_TRUE(result.ok) << result.error;
+    ASSERT_EQ(sent.size(), 4U);
+    EXPECT_EQ(session.state(), ConnectionState::kReady);
+
+    MethodHeader header;
+    std::string error;
+    ASSERT_TRUE(decodeCapturedMethod(sent[3], header, error)) << error;
+    ChannelClose close;
+    ASSERT_TRUE(decodeChannelClose(header.arguments, close, error)) << error;
+    EXPECT_EQ(close.reply_code, 504U);
+}
+
+TEST(ConnectionSessionTest, RejectsDuplicateChannelOpen) {
+    std::vector<std::string> sent;
+    ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    });
+    establishReady(session, sent);
+
+    const uint16_t channel = 1;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Open),
+                        encodeChannelOpen(ChannelOpen{}), channel))
+                    .ok);
+    const SessionResult result = session.feed(encodeMethodFrame(
+        kChannelClassId, static_cast<uint16_t>(ChannelMethodId::Open),
+        encodeChannelOpen(ChannelOpen{}), channel));
+    ASSERT_TRUE(result.ok) << result.error;
+    ASSERT_EQ(sent.size(), 5U);
+
+    MethodHeader header;
+    std::string error;
+    ASSERT_TRUE(decodeCapturedMethod(sent[4], header, error)) << error;
+    ChannelClose close;
+    ASSERT_TRUE(decodeChannelClose(header.arguments, close, error)) << error;
+    EXPECT_EQ(close.reply_code, 504U);
+    EXPECT_EQ(session.state(), ConnectionState::kReady);
 }
 
 }  // namespace mq::amqp091

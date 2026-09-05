@@ -1,7 +1,5 @@
 #include "mq/protocol/amqp091/connection_session.hpp"
 
-#include "mq/protocol/amqp091/wire_writer.hpp"
-
 #include <algorithm>
 #include <cstring>
 
@@ -90,20 +88,140 @@ SessionResult ConnectionSession::processFrames(std::string_view bytes) {
 
 SessionResult ConnectionSession::handleMethod(uint16_t channel,
                                               std::string_view payload) {
-    if (channel != 0) {
-        return fail("connection-level method received on non-zero channel",
-                    504);
-    }
     MethodHeader header;
     std::string decode_error;
     if (!decodeMethodHeader(payload, header, decode_error)) {
         return fail(decode_error, 501);
     }
-    if (header.class_id != kConnectionClassId) {
-        return fail("non-connection method on channel 0 during handshake",
-                    503);
+
+    if (header.class_id == kConnectionClassId) {
+        if (channel != 0) {
+            return fail("connection method received on non-zero channel", 504);
+        }
+        return handleConnectionMethod(header);
     }
-    return handleConnectionMethod(header);
+
+    if (state_ != ConnectionState::kReady) {
+        return fail("non-connection method before connection is ready", 503);
+    }
+
+    if (header.class_id == kChannelClassId) {
+        if (channel == 0) {
+            return fail("channel method received on channel 0", 504);
+        }
+        return handleChannelMethod(channel, header);
+    }
+
+    // Business methods (exchange/queue/basic/tx) will be routed here later.
+    if (channel == 0) {
+        return fail("business method received on channel 0", 503);
+    }
+    if (!isChannelOpen(channel)) {
+        return sendChannelError(channel, 504, header.class_id,
+                                header.method_id, "channel is not open");
+    }
+    return sendChannelError(channel, 540, header.class_id, header.method_id,
+                            "method not implemented");
+}
+
+SessionResult ConnectionSession::handleChannelMethod(
+    uint16_t channel, const MethodHeader& header) {
+    const auto method = static_cast<ChannelMethodId>(header.method_id);
+    auto it = channels_.find(channel);
+
+    if (method == ChannelMethodId::Open) {
+        std::string error;
+        if (!decodeChannelOpen(header.arguments, error)) {
+            return sendChannelError(channel, 502, kChannelClassId,
+                                    static_cast<uint16_t>(method),
+                                    "invalid channel.open");
+        }
+        if (it != channels_.end()) {
+            return sendChannelError(channel, 504, kChannelClassId,
+                                    static_cast<uint16_t>(method),
+                                    "channel already open");
+        }
+        channels_[channel] = ChannelState{};
+        sendFrame(kFrameMethod, channel,
+                  encodeMethodHeader(kChannelClassId,
+                                     static_cast<uint16_t>(
+                                         ChannelMethodId::OpenOk),
+                                     encodeChannelOpenOk()));
+        return SessionResult{};
+    }
+
+    if (it == channels_.end()) {
+        return sendChannelError(channel, 504, kChannelClassId,
+                                static_cast<uint16_t>(method),
+                                "channel is not open");
+    }
+
+    if (it->second.lifecycle == ChannelLifecycle::kClosing) {
+        if (method == ChannelMethodId::CloseOk) {
+            channels_.erase(channel);
+        }
+        return SessionResult{};
+    }
+
+    if (method == ChannelMethodId::Flow) {
+        ChannelFlow flow;
+        std::string error;
+        if (!decodeChannelFlow(header.arguments, flow, error)) {
+            return sendChannelError(channel, 502, kChannelClassId,
+                                    static_cast<uint16_t>(method),
+                                    "invalid channel.flow");
+        }
+        it->second.flow_active = flow.active;
+        sendFrame(kFrameMethod, channel,
+                  encodeMethodHeader(kChannelClassId,
+                                     static_cast<uint16_t>(
+                                         ChannelMethodId::FlowOk),
+                                     encodeChannelFlowOk(flow)));
+        return SessionResult{};
+    }
+
+    if (method == ChannelMethodId::CloseOk) {
+        return sendChannelError(channel, 503, kChannelClassId,
+                                static_cast<uint16_t>(method),
+                                "unexpected channel.close-ok");
+    }
+
+    if (method == ChannelMethodId::Close) {
+        ChannelClose close;
+        std::string error;
+        if (!decodeChannelClose(header.arguments, close, error)) {
+            return sendChannelError(channel, 502, kChannelClassId,
+                                    static_cast<uint16_t>(method),
+                                    "invalid channel.close");
+        }
+        sendFrame(kFrameMethod, channel,
+                  encodeMethodHeader(kChannelClassId,
+                                     static_cast<uint16_t>(
+                                         ChannelMethodId::CloseOk),
+                                     encodeChannelCloseOk()));
+        channels_.erase(channel);
+        return SessionResult{};
+    }
+
+    return sendChannelError(channel, 540, kChannelClassId,
+                            static_cast<uint16_t>(method),
+                            "channel method not implemented");
+}
+
+SessionResult ConnectionSession::sendChannelError(
+    uint16_t channel, uint16_t reply_code, uint16_t failing_class_id,
+    uint16_t failing_method_id, const std::string& text) {
+    ChannelClose close;
+    close.reply_code = reply_code;
+    close.reply_text = text;
+    close.class_id = failing_class_id;
+    close.method_id = failing_method_id;
+    sendFrame(kFrameMethod, channel,
+              encodeMethodHeader(kChannelClassId,
+                                 static_cast<uint16_t>(ChannelMethodId::Close),
+                                 encodeChannelClose(close)));
+    channels_[channel] = ChannelState{ChannelLifecycle::kClosing, true};
+    return SessionResult{};
 }
 
 SessionResult ConnectionSession::handleConnectionMethod(
@@ -212,6 +330,20 @@ SessionResult ConnectionSession::handleConnectionMethod(
     }
 
     return fail("unsupported or unexpected connection method", 503);
+}
+
+bool ConnectionSession::isChannelOpen(uint16_t channel) const {
+    const auto it = channels_.find(channel);
+    return it != channels_.end() &&
+           it->second.lifecycle == ChannelLifecycle::kOpen;
+}
+
+size_t ConnectionSession::openChannelCount() const {
+    size_t count = 0;
+    for (const auto& entry : channels_) {
+        if (entry.second.lifecycle == ChannelLifecycle::kOpen) ++count;
+    }
+    return count;
 }
 
 SessionResult ConnectionSession::sendMethod(uint16_t class_id,

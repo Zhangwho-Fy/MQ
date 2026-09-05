@@ -85,6 +85,7 @@ add_library(amqp091_protocol STATIC
     src/protocol/amqp091/fields.cpp
     src/protocol/amqp091/connection_methods.cpp
     src/protocol/amqp091/connection_session.cpp
+    src/protocol/amqp091/channel_methods.cpp
     src/protocol/amqp091/wire_reader.cpp
     src/protocol/amqp091/wire_writer.cpp
 )
@@ -138,6 +139,13 @@ if(MQ_BUILD_TESTS)
             amqp091_protocol GTest::gtest)
         target_compile_features(connection_session_test PRIVATE cxx_std_17)
         add_test(NAME connection_session_test COMMAND connection_session_test)
+
+        add_executable(channel_methods_test
+            tests/protocol/channel_methods_test.cpp)
+        target_link_libraries(channel_methods_test PRIVATE
+            amqp091_protocol GTest::gtest)
+        target_compile_features(channel_methods_test PRIVATE cxx_std_17)
+        add_test(NAME channel_methods_test COMMAND channel_methods_test)
 
         set(MQ_GTEST_SOURCES
             mq_bindingtest
