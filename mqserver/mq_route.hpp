@@ -1,7 +1,7 @@
 #ifndef __M_ROUTE_H__
 #define __M_ROUTE_H__
 
-#include "../mqcommon/mq_logger.hpp"
+#include "../common/mq_logger.hpp"
 #include "../mqcommon/mq_helper.hpp"
 #include "../mqcommon/mq_msg.pb.h"
 

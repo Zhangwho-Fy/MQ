@@ -2,7 +2,7 @@
 #define __M_QUEUE_H__
 
 #include "../mqcommon/mq_helper.hpp"
-#include "../mqcommon/mq_logger.hpp"
+#include "../common/mq_logger.hpp"
 #include "../mqcommon/mq_msg.pb.h"
 
 #include <iostream>

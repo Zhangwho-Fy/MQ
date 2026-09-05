@@ -48,3 +48,23 @@ CMakeFiles/
 cmake_install.cmake
 Makefile
 !**/makefile
+
+# Local AMQP specification source and translated working copy
+/amqp-xml-doc0-9-1.pdf
+/amqp-0-9-1-spec-zh.md
+/amqp-implementation-plan.md
+
+# Generated sources and local runtime/intermediate artifacts
+*.pb.h
+*.pb.cc
+*.db
+*.db-shm
+*.db-wal
+*.mqb
+*.log
+*.tmp
+*.temp
+*.swp
+*~
+.cache/
+.pytest_cache/

@@ -2,7 +2,7 @@
 
 
 int main(){
-    Fy_mq::FileHelper helper("../mqcommon/mq_logger.hpp");
+    Fy_mq::FileHelper helper("../common/mq_logger.hpp");
     DLOG("是否存在:%d",helper.exists());
     DLOG("文件大小:%ld",helper.size());
 

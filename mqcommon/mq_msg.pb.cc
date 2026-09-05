@@ -22,11 +22,11 @@ namespace _pbi = _pb::internal;
 
 namespace Fy_mq {
 PROTOBUF_CONSTEXPR BasicProperties::BasicProperties(
-    ::_pbi::ConstantInitialized)
-  : id_(&::_pbi::fixed_address_empty_string, ::_pbi::ConstantInitialized{})
-  , routing_key_(&::_pbi::fixed_address_empty_string, ::_pbi::ConstantInitialized{})
-  , deliver_mode_(0)
-{}
+    ::_pbi::ConstantInitialized): _impl_{
+    /*decltype(_impl_.id_)*/{&::_pbi::fixed_address_empty_string, ::_pbi::ConstantInitialized{}}
+  , /*decltype(_impl_.routing_key_)*/{&::_pbi::fixed_address_empty_string, ::_pbi::ConstantInitialized{}}
+  , /*decltype(_impl_.deliver_mode_)*/0
+  , /*decltype(_impl_._cached_size_)*/{}} {}
 struct BasicPropertiesDefaultTypeInternal {
   PROTOBUF_CONSTEXPR BasicPropertiesDefaultTypeInternal()
       : _instance(::_pbi::ConstantInitialized{}) {}
@@ -37,10 +37,11 @@ struct BasicPropertiesDefaultTypeInternal {
 };
 PROTOBUF_ATTRIBUTE_NO_DESTROY PROTOBUF_CONSTINIT PROTOBUF_ATTRIBUTE_INIT_PRIORITY1 BasicPropertiesDefaultTypeInternal _BasicProperties_default_instance_;
 PROTOBUF_CONSTEXPR Message_Payload::Message_Payload(
-    ::_pbi::ConstantInitialized)
-  : body_(&::_pbi::fixed_address_empty_string, ::_pbi::ConstantInitialized{})
-  , valid_(&::_pbi::fixed_address_empty_string, ::_pbi::ConstantInitialized{})
-  , properties_(nullptr){}
+    ::_pbi::ConstantInitialized): _impl_{
+    /*decltype(_impl_.body_)*/{&::_pbi::fixed_address_empty_string, ::_pbi::ConstantInitialized{}}
+  , /*decltype(_impl_.valid_)*/{&::_pbi::fixed_address_empty_string, ::_pbi::ConstantInitialized{}}
+  , /*decltype(_impl_.properties_)*/nullptr
+  , /*decltype(_impl_._cached_size_)*/{}} {}
 struct Message_PayloadDefaultTypeInternal {
   PROTOBUF_CONSTEXPR Message_PayloadDefaultTypeInternal()
       : _instance(::_pbi::ConstantInitialized{}) {}
@@ -51,10 +52,11 @@ struct Message_PayloadDefaultTypeInternal {
 };
 PROTOBUF_ATTRIBUTE_NO_DESTROY PROTOBUF_CONSTINIT PROTOBUF_ATTRIBUTE_INIT_PRIORITY1 Message_PayloadDefaultTypeInternal _Message_Payload_default_instance_;
 PROTOBUF_CONSTEXPR Message::Message(
-    ::_pbi::ConstantInitialized)
-  : payload_(nullptr)
-  , offset_(0u)
-  , length_(0u){}
+    ::_pbi::ConstantInitialized): _impl_{
+    /*decltype(_impl_.payload_)*/nullptr
+  , /*decltype(_impl_.offset_)*/0u
+  , /*decltype(_impl_.length_)*/0u
+  , /*decltype(_impl_._cached_size_)*/{}} {}
 struct MessageDefaultTypeInternal {
   PROTOBUF_CONSTEXPR MessageDefaultTypeInternal()
       : _instance(::_pbi::ConstantInitialized{}) {}
@@ -76,27 +78,27 @@ const uint32_t TableStruct_mq_5fmsg_2eproto::offsets[] PROTOBUF_SECTION_VARIABLE
   ~0u,  // no _oneof_case_
   ~0u,  // no _weak_field_map_
   ~0u,  // no _inlined_string_donated_
-  PROTOBUF_FIELD_OFFSET(::Fy_mq::BasicProperties, id_),
-  PROTOBUF_FIELD_OFFSET(::Fy_mq::BasicProperties, deliver_mode_),
-  PROTOBUF_FIELD_OFFSET(::Fy_mq::BasicProperties, routing_key_),
+  PROTOBUF_FIELD_OFFSET(::Fy_mq::BasicProperties, _impl_.id_),
+  PROTOBUF_FIELD_OFFSET(::Fy_mq::BasicProperties, _impl_.deliver_mode_),
+  PROTOBUF_FIELD_OFFSET(::Fy_mq::BasicProperties, _impl_.routing_key_),
   ~0u,  // no _has_bits_
   PROTOBUF_FIELD_OFFSET(::Fy_mq::Message_Payload, _internal_metadata_),
   ~0u,  // no _extensions_
   ~0u,  // no _oneof_case_
   ~0u,  // no _weak_field_map_
   ~0u,  // no _inlined_string_donated_
-  PROTOBUF_FIELD_OFFSET(::Fy_mq::Message_Payload, properties_),
-  PROTOBUF_FIELD_OFFSET(::Fy_mq::Message_Payload, body_),
-  PROTOBUF_FIELD_OFFSET(::Fy_mq::Message_Payload, valid_),
+  PROTOBUF_FIELD_OFFSET(::Fy_mq::Message_Payload, _impl_.properties_),
+  PROTOBUF_FIELD_OFFSET(::Fy_mq::Message_Payload, _impl_.body_),
+  PROTOBUF_FIELD_OFFSET(::Fy_mq::Message_Payload, _impl_.valid_),
   ~0u,  // no _has_bits_
   PROTOBUF_FIELD_OFFSET(::Fy_mq::Message, _internal_metadata_),
   ~0u,  // no _extensions_
   ~0u,  // no _oneof_case_
   ~0u,  // no _weak_field_map_
   ~0u,  // no _inlined_string_donated_
-  PROTOBUF_FIELD_OFFSET(::Fy_mq::Message, payload_),
-  PROTOBUF_FIELD_OFFSET(::Fy_mq::Message, offset_),
-  PROTOBUF_FIELD_OFFSET(::Fy_mq::Message, length_),
+  PROTOBUF_FIELD_OFFSET(::Fy_mq::Message, _impl_.payload_),
+  PROTOBUF_FIELD_OFFSET(::Fy_mq::Message, _impl_.offset_),
+  PROTOBUF_FIELD_OFFSET(::Fy_mq::Message, _impl_.length_),
 };
 static const ::_pbi::MigrationSchema schemas[] PROTOBUF_SECTION_VARIABLE(protodesc_cold) = {
   { 0, -1, -1, sizeof(::Fy_mq::BasicProperties)},
@@ -180,42 +182,57 @@ class BasicProperties::_Internal {
 BasicProperties::BasicProperties(::PROTOBUF_NAMESPACE_ID::Arena* arena,
                          bool is_message_owned)
   : ::PROTOBUF_NAMESPACE_ID::Message(arena, is_message_owned) {
-  SharedCtor();
+  SharedCtor(arena, is_message_owned);
   // @@protoc_insertion_point(arena_constructor:Fy_mq.BasicProperties)
 }
 BasicProperties::BasicProperties(const BasicProperties& from)
   : ::PROTOBUF_NAMESPACE_ID::Message() {
+  BasicProperties* const _this = this; (void)_this;
+  new (&_impl_) Impl_{
+      decltype(_impl_.id_){}
+    , decltype(_impl_.routing_key_){}
+    , decltype(_impl_.deliver_mode_){}
+    , /*decltype(_impl_._cached_size_)*/{}};
+
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
-  id_.InitDefault();
+  _impl_.id_.InitDefault();
   #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
-    id_.Set("", GetArenaForAllocation());
+    _impl_.id_.Set("", GetArenaForAllocation());
   #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
   if (!from._internal_id().empty()) {
-    id_.Set(from._internal_id(), 
-      GetArenaForAllocation());
+    _this->_impl_.id_.Set(from._internal_id(),
+      _this->GetArenaForAllocation());
   }
-  routing_key_.InitDefault();
+  _impl_.routing_key_.InitDefault();
   #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
-    routing_key_.Set("", GetArenaForAllocation());
+    _impl_.routing_key_.Set("", GetArenaForAllocation());
   #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
   if (!from._internal_routing_key().empty()) {
-    routing_key_.Set(from._internal_routing_key(), 
-      GetArenaForAllocation());
+    _this->_impl_.routing_key_.Set(from._internal_routing_key(),
+      _this->GetArenaForAllocation());
   }
-  deliver_mode_ = from.deliver_mode_;
+  _this->_impl_.deliver_mode_ = from._impl_.deliver_mode_;
   // @@protoc_insertion_point(copy_constructor:Fy_mq.BasicProperties)
 }
 
-inline void BasicProperties::SharedCtor() {
-id_.InitDefault();
-#ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
-  id_.Set("", GetArenaForAllocation());
-#endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
-routing_key_.InitDefault();
-#ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
-  routing_key_.Set("", GetArenaForAllocation());
-#endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
-deliver_mode_ = 0;
+inline void BasicProperties::SharedCtor(
+    ::_pb::Arena* arena, bool is_message_owned) {
+  (void)arena;
+  (void)is_message_owned;
+  new (&_impl_) Impl_{
+      decltype(_impl_.id_){}
+    , decltype(_impl_.routing_key_){}
+    , decltype(_impl_.deliver_mode_){0}
+    , /*decltype(_impl_._cached_size_)*/{}
+  };
+  _impl_.id_.InitDefault();
+  #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+    _impl_.id_.Set("", GetArenaForAllocation());
+  #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  _impl_.routing_key_.InitDefault();
+  #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+    _impl_.routing_key_.Set("", GetArenaForAllocation());
+  #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
 }
 
 BasicProperties::~BasicProperties() {
@@ -229,12 +246,12 @@ BasicProperties::~BasicProperties() {
 
 inline void BasicProperties::SharedDtor() {
   GOOGLE_DCHECK(GetArenaForAllocation() == nullptr);
-  id_.Destroy();
-  routing_key_.Destroy();
+  _impl_.id_.Destroy();
+  _impl_.routing_key_.Destroy();
 }
 
 void BasicProperties::SetCachedSize(int size) const {
-  _cached_size_.Set(size);
+  _impl_._cached_size_.Set(size);
 }
 
 void BasicProperties::Clear() {
@@ -243,9 +260,9 @@ void BasicProperties::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  id_.ClearToEmpty();
-  routing_key_.ClearToEmpty();
-  deliver_mode_ = 0;
+  _impl_.id_.ClearToEmpty();
+  _impl_.routing_key_.ClearToEmpty();
+  _impl_.deliver_mode_ = 0;
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
@@ -376,38 +393,34 @@ size_t BasicProperties::ByteSizeLong() const {
       ::_pbi::WireFormatLite::EnumSize(this->_internal_deliver_mode());
   }
 
-  return MaybeComputeUnknownFieldsSize(total_size, &_cached_size_);
+  return MaybeComputeUnknownFieldsSize(total_size, &_impl_._cached_size_);
 }
 
 const ::PROTOBUF_NAMESPACE_ID::Message::ClassData BasicProperties::_class_data_ = {
-    ::PROTOBUF_NAMESPACE_ID::Message::CopyWithSizeCheck,
+    ::PROTOBUF_NAMESPACE_ID::Message::CopyWithSourceCheck,
     BasicProperties::MergeImpl
 };
 const ::PROTOBUF_NAMESPACE_ID::Message::ClassData*BasicProperties::GetClassData() const { return &_class_data_; }
 
-void BasicProperties::MergeImpl(::PROTOBUF_NAMESPACE_ID::Message* to,
-                      const ::PROTOBUF_NAMESPACE_ID::Message& from) {
-  static_cast<BasicProperties *>(to)->MergeFrom(
-      static_cast<const BasicProperties &>(from));
-}
 
-
-void BasicProperties::MergeFrom(const BasicProperties& from) {
-// @@protoc_insertion_point(class_specific_merge_from_start:Fy_mq.BasicProperties)
-  GOOGLE_DCHECK_NE(&from, this);
+void BasicProperties::MergeImpl(::PROTOBUF_NAMESPACE_ID::Message& to_msg, const ::PROTOBUF_NAMESPACE_ID::Message& from_msg) {
+  auto* const _this = static_cast<BasicProperties*>(&to_msg);
+  auto& from = static_cast<const BasicProperties&>(from_msg);
+  // @@protoc_insertion_point(class_specific_merge_from_start:Fy_mq.BasicProperties)
+  GOOGLE_DCHECK_NE(&from, _this);
   uint32_t cached_has_bits = 0;
   (void) cached_has_bits;
 
   if (!from._internal_id().empty()) {
-    _internal_set_id(from._internal_id());
+    _this->_internal_set_id(from._internal_id());
   }
   if (!from._internal_routing_key().empty()) {
-    _internal_set_routing_key(from._internal_routing_key());
+    _this->_internal_set_routing_key(from._internal_routing_key());
   }
   if (from._internal_deliver_mode() != 0) {
-    _internal_set_deliver_mode(from._internal_deliver_mode());
+    _this->_internal_set_deliver_mode(from._internal_deliver_mode());
   }
-  _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
+  _this->_internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
 }
 
 void BasicProperties::CopyFrom(const BasicProperties& from) {
@@ -427,14 +440,14 @@ void BasicProperties::InternalSwap(BasicProperties* other) {
   auto* rhs_arena = other->GetArenaForAllocation();
   _internal_metadata_.InternalSwap(&other->_internal_metadata_);
   ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::InternalSwap(
-      &id_, lhs_arena,
-      &other->id_, rhs_arena
+      &_impl_.id_, lhs_arena,
+      &other->_impl_.id_, rhs_arena
   );
   ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::InternalSwap(
-      &routing_key_, lhs_arena,
-      &other->routing_key_, rhs_arena
+      &_impl_.routing_key_, lhs_arena,
+      &other->_impl_.routing_key_, rhs_arena
   );
-  swap(deliver_mode_, other->deliver_mode_);
+  swap(_impl_.deliver_mode_, other->_impl_.deliver_mode_);
 }
 
 ::PROTOBUF_NAMESPACE_ID::Metadata BasicProperties::GetMetadata() const {
@@ -452,51 +465,64 @@ class Message_Payload::_Internal {
 
 const ::Fy_mq::BasicProperties&
 Message_Payload::_Internal::properties(const Message_Payload* msg) {
-  return *msg->properties_;
+  return *msg->_impl_.properties_;
 }
 Message_Payload::Message_Payload(::PROTOBUF_NAMESPACE_ID::Arena* arena,
                          bool is_message_owned)
   : ::PROTOBUF_NAMESPACE_ID::Message(arena, is_message_owned) {
-  SharedCtor();
+  SharedCtor(arena, is_message_owned);
   // @@protoc_insertion_point(arena_constructor:Fy_mq.Message.Payload)
 }
 Message_Payload::Message_Payload(const Message_Payload& from)
   : ::PROTOBUF_NAMESPACE_ID::Message() {
+  Message_Payload* const _this = this; (void)_this;
+  new (&_impl_) Impl_{
+      decltype(_impl_.body_){}
+    , decltype(_impl_.valid_){}
+    , decltype(_impl_.properties_){nullptr}
+    , /*decltype(_impl_._cached_size_)*/{}};
+
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
-  body_.InitDefault();
+  _impl_.body_.InitDefault();
   #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
-    body_.Set("", GetArenaForAllocation());
+    _impl_.body_.Set("", GetArenaForAllocation());
   #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
   if (!from._internal_body().empty()) {
-    body_.Set(from._internal_body(), 
-      GetArenaForAllocation());
+    _this->_impl_.body_.Set(from._internal_body(),
+      _this->GetArenaForAllocation());
   }
-  valid_.InitDefault();
+  _impl_.valid_.InitDefault();
   #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
-    valid_.Set("", GetArenaForAllocation());
+    _impl_.valid_.Set("", GetArenaForAllocation());
   #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
   if (!from._internal_valid().empty()) {
-    valid_.Set(from._internal_valid(), 
-      GetArenaForAllocation());
+    _this->_impl_.valid_.Set(from._internal_valid(),
+      _this->GetArenaForAllocation());
   }
   if (from._internal_has_properties()) {
-    properties_ = new ::Fy_mq::BasicProperties(*from.properties_);
-  } else {
-    properties_ = nullptr;
+    _this->_impl_.properties_ = new ::Fy_mq::BasicProperties(*from._impl_.properties_);
   }
   // @@protoc_insertion_point(copy_constructor:Fy_mq.Message.Payload)
 }
 
-inline void Message_Payload::SharedCtor() {
-body_.InitDefault();
-#ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
-  body_.Set("", GetArenaForAllocation());
-#endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
-valid_.InitDefault();
-#ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
-  valid_.Set("", GetArenaForAllocation());
-#endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
-properties_ = nullptr;
+inline void Message_Payload::SharedCtor(
+    ::_pb::Arena* arena, bool is_message_owned) {
+  (void)arena;
+  (void)is_message_owned;
+  new (&_impl_) Impl_{
+      decltype(_impl_.body_){}
+    , decltype(_impl_.valid_){}
+    , decltype(_impl_.properties_){nullptr}
+    , /*decltype(_impl_._cached_size_)*/{}
+  };
+  _impl_.body_.InitDefault();
+  #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+    _impl_.body_.Set("", GetArenaForAllocation());
+  #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  _impl_.valid_.InitDefault();
+  #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+    _impl_.valid_.Set("", GetArenaForAllocation());
+  #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
 }
 
 Message_Payload::~Message_Payload() {
@@ -510,13 +536,13 @@ Message_Payload::~Message_Payload() {
 
 inline void Message_Payload::SharedDtor() {
   GOOGLE_DCHECK(GetArenaForAllocation() == nullptr);
-  body_.Destroy();
-  valid_.Destroy();
-  if (this != internal_default_instance()) delete properties_;
+  _impl_.body_.Destroy();
+  _impl_.valid_.Destroy();
+  if (this != internal_default_instance()) delete _impl_.properties_;
 }
 
 void Message_Payload::SetCachedSize(int size) const {
-  _cached_size_.Set(size);
+  _impl_._cached_size_.Set(size);
 }
 
 void Message_Payload::Clear() {
@@ -525,12 +551,12 @@ void Message_Payload::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  body_.ClearToEmpty();
-  valid_.ClearToEmpty();
-  if (GetArenaForAllocation() == nullptr && properties_ != nullptr) {
-    delete properties_;
+  _impl_.body_.ClearToEmpty();
+  _impl_.valid_.ClearToEmpty();
+  if (GetArenaForAllocation() == nullptr && _impl_.properties_ != nullptr) {
+    delete _impl_.properties_;
   }
-  properties_ = nullptr;
+  _impl_.properties_ = nullptr;
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
@@ -658,41 +684,38 @@ size_t Message_Payload::ByteSizeLong() const {
   if (this->_internal_has_properties()) {
     total_size += 1 +
       ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::MessageSize(
-        *properties_);
+        *_impl_.properties_);
   }
 
-  return MaybeComputeUnknownFieldsSize(total_size, &_cached_size_);
+  return MaybeComputeUnknownFieldsSize(total_size, &_impl_._cached_size_);
 }
 
 const ::PROTOBUF_NAMESPACE_ID::Message::ClassData Message_Payload::_class_data_ = {
-    ::PROTOBUF_NAMESPACE_ID::Message::CopyWithSizeCheck,
+    ::PROTOBUF_NAMESPACE_ID::Message::CopyWithSourceCheck,
     Message_Payload::MergeImpl
 };
 const ::PROTOBUF_NAMESPACE_ID::Message::ClassData*Message_Payload::GetClassData() const { return &_class_data_; }
 
-void Message_Payload::MergeImpl(::PROTOBUF_NAMESPACE_ID::Message* to,
-                      const ::PROTOBUF_NAMESPACE_ID::Message& from) {
-  static_cast<Message_Payload *>(to)->MergeFrom(
-      static_cast<const Message_Payload &>(from));
-}
 
-
-void Message_Payload::MergeFrom(const Message_Payload& from) {
-// @@protoc_insertion_point(class_specific_merge_from_start:Fy_mq.Message.Payload)
-  GOOGLE_DCHECK_NE(&from, this);
+void Message_Payload::MergeImpl(::PROTOBUF_NAMESPACE_ID::Message& to_msg, const ::PROTOBUF_NAMESPACE_ID::Message& from_msg) {
+  auto* const _this = static_cast<Message_Payload*>(&to_msg);
+  auto& from = static_cast<const Message_Payload&>(from_msg);
+  // @@protoc_insertion_point(class_specific_merge_from_start:Fy_mq.Message.Payload)
+  GOOGLE_DCHECK_NE(&from, _this);
   uint32_t cached_has_bits = 0;
   (void) cached_has_bits;
 
   if (!from._internal_body().empty()) {
-    _internal_set_body(from._internal_body());
+    _this->_internal_set_body(from._internal_body());
   }
   if (!from._internal_valid().empty()) {
-    _internal_set_valid(from._internal_valid());
+    _this->_internal_set_valid(from._internal_valid());
   }
   if (from._internal_has_properties()) {
-    _internal_mutable_properties()->::Fy_mq::BasicProperties::MergeFrom(from._internal_properties());
+    _this->_internal_mutable_properties()->::Fy_mq::BasicProperties::MergeFrom(
+        from._internal_properties());
   }
-  _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
+  _this->_internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
 }
 
 void Message_Payload::CopyFrom(const Message_Payload& from) {
@@ -712,14 +735,14 @@ void Message_Payload::InternalSwap(Message_Payload* other) {
   auto* rhs_arena = other->GetArenaForAllocation();
   _internal_metadata_.InternalSwap(&other->_internal_metadata_);
   ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::InternalSwap(
-      &body_, lhs_arena,
-      &other->body_, rhs_arena
+      &_impl_.body_, lhs_arena,
+      &other->_impl_.body_, rhs_arena
   );
   ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::InternalSwap(
-      &valid_, lhs_arena,
-      &other->valid_, rhs_arena
+      &_impl_.valid_, lhs_arena,
+      &other->_impl_.valid_, rhs_arena
   );
-  swap(properties_, other->properties_);
+  swap(_impl_.properties_, other->_impl_.properties_);
 }
 
 ::PROTOBUF_NAMESPACE_ID::Metadata Message_Payload::GetMetadata() const {
@@ -737,33 +760,43 @@ class Message::_Internal {
 
 const ::Fy_mq::Message_Payload&
 Message::_Internal::payload(const Message* msg) {
-  return *msg->payload_;
+  return *msg->_impl_.payload_;
 }
 Message::Message(::PROTOBUF_NAMESPACE_ID::Arena* arena,
                          bool is_message_owned)
   : ::PROTOBUF_NAMESPACE_ID::Message(arena, is_message_owned) {
-  SharedCtor();
+  SharedCtor(arena, is_message_owned);
   // @@protoc_insertion_point(arena_constructor:Fy_mq.Message)
 }
 Message::Message(const Message& from)
   : ::PROTOBUF_NAMESPACE_ID::Message() {
+  Message* const _this = this; (void)_this;
+  new (&_impl_) Impl_{
+      decltype(_impl_.payload_){nullptr}
+    , decltype(_impl_.offset_){}
+    , decltype(_impl_.length_){}
+    , /*decltype(_impl_._cached_size_)*/{}};
+
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   if (from._internal_has_payload()) {
-    payload_ = new ::Fy_mq::Message_Payload(*from.payload_);
-  } else {
-    payload_ = nullptr;
+    _this->_impl_.payload_ = new ::Fy_mq::Message_Payload(*from._impl_.payload_);
   }
-  ::memcpy(&offset_, &from.offset_,
-    static_cast<size_t>(reinterpret_cast<char*>(&length_) -
-    reinterpret_cast<char*>(&offset_)) + sizeof(length_));
+  ::memcpy(&_impl_.offset_, &from._impl_.offset_,
+    static_cast<size_t>(reinterpret_cast<char*>(&_impl_.length_) -
+    reinterpret_cast<char*>(&_impl_.offset_)) + sizeof(_impl_.length_));
   // @@protoc_insertion_point(copy_constructor:Fy_mq.Message)
 }
 
-inline void Message::SharedCtor() {
-::memset(reinterpret_cast<char*>(this) + static_cast<size_t>(
-    reinterpret_cast<char*>(&payload_) - reinterpret_cast<char*>(this)),
-    0, static_cast<size_t>(reinterpret_cast<char*>(&length_) -
-    reinterpret_cast<char*>(&payload_)) + sizeof(length_));
+inline void Message::SharedCtor(
+    ::_pb::Arena* arena, bool is_message_owned) {
+  (void)arena;
+  (void)is_message_owned;
+  new (&_impl_) Impl_{
+      decltype(_impl_.payload_){nullptr}
+    , decltype(_impl_.offset_){0u}
+    , decltype(_impl_.length_){0u}
+    , /*decltype(_impl_._cached_size_)*/{}
+  };
 }
 
 Message::~Message() {
@@ -777,11 +810,11 @@ Message::~Message() {
 
 inline void Message::SharedDtor() {
   GOOGLE_DCHECK(GetArenaForAllocation() == nullptr);
-  if (this != internal_default_instance()) delete payload_;
+  if (this != internal_default_instance()) delete _impl_.payload_;
 }
 
 void Message::SetCachedSize(int size) const {
-  _cached_size_.Set(size);
+  _impl_._cached_size_.Set(size);
 }
 
 void Message::Clear() {
@@ -790,13 +823,13 @@ void Message::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  if (GetArenaForAllocation() == nullptr && payload_ != nullptr) {
-    delete payload_;
+  if (GetArenaForAllocation() == nullptr && _impl_.payload_ != nullptr) {
+    delete _impl_.payload_;
   }
-  payload_ = nullptr;
-  ::memset(&offset_, 0, static_cast<size_t>(
-      reinterpret_cast<char*>(&length_) -
-      reinterpret_cast<char*>(&offset_)) + sizeof(length_));
+  _impl_.payload_ = nullptr;
+  ::memset(&_impl_.offset_, 0, static_cast<size_t>(
+      reinterpret_cast<char*>(&_impl_.length_) -
+      reinterpret_cast<char*>(&_impl_.offset_)) + sizeof(_impl_.length_));
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
@@ -817,7 +850,7 @@ const char* Message::_InternalParse(const char* ptr, ::_pbi::ParseContext* ctx) 
       // uint32 offset = 2;
       case 2:
         if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 16)) {
-          offset_ = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint32(&ptr);
+          _impl_.offset_ = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint32(&ptr);
           CHK_(ptr);
         } else
           goto handle_unusual;
@@ -825,7 +858,7 @@ const char* Message::_InternalParse(const char* ptr, ::_pbi::ParseContext* ctx) 
       // uint32 length = 3;
       case 3:
         if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 24)) {
-          length_ = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint32(&ptr);
+          _impl_.length_ = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint32(&ptr);
           CHK_(ptr);
         } else
           goto handle_unusual;
@@ -898,7 +931,7 @@ size_t Message::ByteSizeLong() const {
   if (this->_internal_has_payload()) {
     total_size += 1 +
       ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::MessageSize(
-        *payload_);
+        *_impl_.payload_);
   }
 
   // uint32 offset = 2;
@@ -911,38 +944,35 @@ size_t Message::ByteSizeLong() const {
     total_size += ::_pbi::WireFormatLite::UInt32SizePlusOne(this->_internal_length());
   }
 
-  return MaybeComputeUnknownFieldsSize(total_size, &_cached_size_);
+  return MaybeComputeUnknownFieldsSize(total_size, &_impl_._cached_size_);
 }
 
 const ::PROTOBUF_NAMESPACE_ID::Message::ClassData Message::_class_data_ = {
-    ::PROTOBUF_NAMESPACE_ID::Message::CopyWithSizeCheck,
+    ::PROTOBUF_NAMESPACE_ID::Message::CopyWithSourceCheck,
     Message::MergeImpl
 };
 const ::PROTOBUF_NAMESPACE_ID::Message::ClassData*Message::GetClassData() const { return &_class_data_; }
 
-void Message::MergeImpl(::PROTOBUF_NAMESPACE_ID::Message* to,
-                      const ::PROTOBUF_NAMESPACE_ID::Message& from) {
-  static_cast<Message *>(to)->MergeFrom(
-      static_cast<const Message &>(from));
-}
 
-
-void Message::MergeFrom(const Message& from) {
-// @@protoc_insertion_point(class_specific_merge_from_start:Fy_mq.Message)
-  GOOGLE_DCHECK_NE(&from, this);
+void Message::MergeImpl(::PROTOBUF_NAMESPACE_ID::Message& to_msg, const ::PROTOBUF_NAMESPACE_ID::Message& from_msg) {
+  auto* const _this = static_cast<Message*>(&to_msg);
+  auto& from = static_cast<const Message&>(from_msg);
+  // @@protoc_insertion_point(class_specific_merge_from_start:Fy_mq.Message)
+  GOOGLE_DCHECK_NE(&from, _this);
   uint32_t cached_has_bits = 0;
   (void) cached_has_bits;
 
   if (from._internal_has_payload()) {
-    _internal_mutable_payload()->::Fy_mq::Message_Payload::MergeFrom(from._internal_payload());
+    _this->_internal_mutable_payload()->::Fy_mq::Message_Payload::MergeFrom(
+        from._internal_payload());
   }
   if (from._internal_offset() != 0) {
-    _internal_set_offset(from._internal_offset());
+    _this->_internal_set_offset(from._internal_offset());
   }
   if (from._internal_length() != 0) {
-    _internal_set_length(from._internal_length());
+    _this->_internal_set_length(from._internal_length());
   }
-  _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
+  _this->_internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
 }
 
 void Message::CopyFrom(const Message& from) {
@@ -960,11 +990,11 @@ void Message::InternalSwap(Message* other) {
   using std::swap;
   _internal_metadata_.InternalSwap(&other->_internal_metadata_);
   ::PROTOBUF_NAMESPACE_ID::internal::memswap<
-      PROTOBUF_FIELD_OFFSET(Message, length_)
-      + sizeof(Message::length_)
-      - PROTOBUF_FIELD_OFFSET(Message, payload_)>(
-          reinterpret_cast<char*>(&payload_),
-          reinterpret_cast<char*>(&other->payload_));
+      PROTOBUF_FIELD_OFFSET(Message, _impl_.length_)
+      + sizeof(Message::_impl_.length_)
+      - PROTOBUF_FIELD_OFFSET(Message, _impl_.payload_)>(
+          reinterpret_cast<char*>(&_impl_.payload_),
+          reinterpret_cast<char*>(&other->_impl_.payload_));
 }
 
 ::PROTOBUF_NAMESPACE_ID::Metadata Message::GetMetadata() const {
