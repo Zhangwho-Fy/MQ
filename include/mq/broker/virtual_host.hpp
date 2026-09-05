@@ -47,6 +47,7 @@ public:
     BrokerResult declareQueue(const QueueSpec& spec);
     BrokerResult deleteQueue(const std::string& name, bool if_unused,
                              bool if_empty);
+    BrokerResult purgeQueue(const std::string& name);
     bool hasQueue(const std::string& name) const;
     size_t queueCount() const { return queues_.size(); }
 

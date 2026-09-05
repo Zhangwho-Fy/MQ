@@ -1,6 +1,7 @@
 #ifndef MQ_TRANSPORT_AMQP_CONNECTION_HPP
 #define MQ_TRANSPORT_AMQP_CONNECTION_HPP
 
+#include "mq/broker/virtual_host.hpp"
 #include "mq/protocol/amqp091/connection_session.hpp"
 
 #include "muduo/net/Buffer.h"
@@ -19,7 +20,8 @@ namespace mq::transport {
 class AmqpConnectionHandler {
 public:
     AmqpConnectionHandler(const amqp091::ConnectionConfig& config,
-                          const muduo::net::TcpConnectionPtr& connection);
+                          const muduo::net::TcpConnectionPtr& connection,
+                          std::shared_ptr<broker::VirtualHost> virtual_host);
 
     void onMessage(muduo::net::Buffer* buffer);
     const muduo::net::TcpConnectionPtr& connection() const { return connection_; }
@@ -48,6 +50,7 @@ private:
     muduo::net::EventLoop loop_;
     muduo::net::TcpServer server_;
     amqp091::ConnectionConfig config_;
+    std::shared_ptr<broker::VirtualHost> virtual_host_;
     std::map<muduo::net::TcpConnectionPtr,
              std::unique_ptr<AmqpConnectionHandler>>
         connections_;

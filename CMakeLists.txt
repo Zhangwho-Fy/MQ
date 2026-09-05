@@ -110,6 +110,8 @@ target_compile_options(mq_broker PRIVATE
     $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic>
 )
 
+target_link_libraries(amqp091_protocol PUBLIC mq_broker)
+
 add_executable(amqp_server
     src/amqp_server_main.cpp
     src/transport/amqp_connection.cpp

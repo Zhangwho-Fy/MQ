@@ -3,11 +3,15 @@
 
 #include "connection_methods.hpp"
 #include "channel_methods.hpp"
+#include "exchange_methods.hpp"
 #include "frame_codec.hpp"
+#include "queue_methods.hpp"
+#include "mq/broker/virtual_host.hpp"
 
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -48,7 +52,9 @@ class ConnectionSession {
 public:
     using SendCallback = std::function<void(const std::string&)>;
 
-    ConnectionSession(const ConnectionConfig& config, SendCallback send);
+    ConnectionSession(const ConnectionConfig& config, SendCallback send,
+                      std::shared_ptr<broker::VirtualHost> virtual_host =
+                          nullptr);
 
     SessionResult feed(std::string_view bytes);
 
@@ -75,6 +81,13 @@ private:
     SessionResult handleConnectionMethod(const MethodHeader& header);
     SessionResult handleChannelMethod(uint16_t channel,
                                       const MethodHeader& header);
+    SessionResult handleExchangeMethod(uint16_t channel,
+                                       const MethodHeader& header);
+    SessionResult handleQueueMethod(uint16_t channel,
+                                    const MethodHeader& header);
+    SessionResult sendMethodOnChannel(uint16_t channel, uint16_t class_id,
+                                      uint16_t method_id,
+                                      const std::string& arguments);
     SessionResult sendChannelError(uint16_t channel, uint16_t reply_code,
                                    uint16_t failing_class_id,
                                    uint16_t failing_method_id,
@@ -95,6 +108,8 @@ private:
     uint32_t frame_max_ = 0;
     uint16_t heartbeat_ = 0;
     std::map<uint16_t, ChannelState> channels_;
+    std::shared_ptr<broker::VirtualHost> virtual_host_;
+    uint64_t generated_queue_seq_ = 0;
 };
 
 }  // namespace mq::amqp091

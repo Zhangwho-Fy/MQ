@@ -322,6 +322,125 @@ TEST(ConnectionSessionTest, RejectsDuplicateChannelOpen) {
     EXPECT_EQ(session.state(), ConnectionState::kReady);
 }
 
+TEST(ConnectionSessionTest, DeclaresExchangeQueueAndBind) {
+    auto host = std::make_shared<broker::VirtualHost>();
+    std::vector<std::string> sent;
+    ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    }, host);
+    establishReady(session, sent);
+
+    const uint16_t channel = 1;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Open),
+                        encodeChannelOpen(ChannelOpen{}), channel))
+                    .ok);
+    ASSERT_EQ(sent.size(), 4U);
+
+    ExchangeDeclare exchange;
+    exchange.exchange = "logs";
+    exchange.type = "fanout";
+    exchange.durable = true;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kExchangeClassId,
+                        static_cast<uint16_t>(ExchangeMethodId::Declare),
+                        encodeExchangeDeclare(exchange), channel))
+                    .ok);
+    ASSERT_EQ(sent.size(), 5U);
+    ASSERT_TRUE(host->hasExchange("logs"));
+
+    QueueDeclare queue;
+    queue.queue = "task_queue";
+    queue.durable = true;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kQueueClassId,
+                        static_cast<uint16_t>(QueueMethodId::Declare),
+                        encodeQueueDeclare(queue), channel))
+                    .ok);
+    ASSERT_EQ(sent.size(), 6U);
+
+    QueueBind bind;
+    bind.queue = "task_queue";
+    bind.exchange = "logs";
+    bind.routing_key = "task";
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kQueueClassId,
+                        static_cast<uint16_t>(QueueMethodId::Bind),
+                        encodeQueueBind(bind), channel))
+                    .ok);
+    ASSERT_EQ(sent.size(), 7U);
+    EXPECT_EQ(host->bindingCount("logs", "task_queue"), 1U);
+
+    MethodHeader header;
+    uint16_t response_channel = 0;
+    std::string error;
+    ASSERT_TRUE(decodeCapturedMethod(sent[4], header, error,
+                                     &response_channel))
+        << error;
+    EXPECT_EQ(response_channel, channel);
+    EXPECT_EQ(header.class_id, kExchangeClassId);
+    EXPECT_EQ(header.method_id,
+              static_cast<uint16_t>(ExchangeMethodId::DeclareOk));
+
+    ASSERT_TRUE(decodeCapturedMethod(sent[5], header, error,
+                                     &response_channel))
+        << error;
+    EXPECT_EQ(header.class_id, kQueueClassId);
+    EXPECT_EQ(header.method_id,
+              static_cast<uint16_t>(QueueMethodId::DeclareOk));
+    QueueDeclareOk declare_ok;
+    ASSERT_TRUE(decodeQueueDeclareOk(header.arguments, declare_ok, error))
+        << error;
+    EXPECT_EQ(declare_ok.queue, "task_queue");
+
+    ASSERT_TRUE(decodeCapturedMethod(sent[6], header, error,
+                                     &response_channel))
+        << error;
+    EXPECT_EQ(header.class_id, kQueueClassId);
+    EXPECT_EQ(header.method_id,
+              static_cast<uint16_t>(QueueMethodId::BindOk));
+}
+
+TEST(ConnectionSessionTest, PassiveDeclareUsesChannelErrorNotConnectionClose) {
+    auto host = std::make_shared<broker::VirtualHost>();
+    std::vector<std::string> sent;
+    ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    }, host);
+    establishReady(session, sent);
+
+    const uint16_t channel = 1;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Open),
+                        encodeChannelOpen(ChannelOpen{}), channel))
+                    .ok);
+
+    QueueDeclare queue;
+    queue.queue = "missing_queue";
+    queue.passive = true;
+    const SessionResult result = session.feed(encodeMethodFrame(
+        kQueueClassId, static_cast<uint16_t>(QueueMethodId::Declare),
+        encodeQueueDeclare(queue), channel));
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_EQ(session.state(), ConnectionState::kReady);
+    EXPECT_FALSE(host->hasQueue("missing_queue"));
+
+    MethodHeader header;
+    std::string error;
+    ASSERT_TRUE(decodeCapturedMethod(sent.back(), header, error)) << error;
+    EXPECT_EQ(header.class_id, kChannelClassId);
+    ChannelClose close;
+    ASSERT_TRUE(decodeChannelClose(header.arguments, close, error)) << error;
+    EXPECT_EQ(close.reply_code, 404U);
+}
+
 }  // namespace mq::amqp091
 
 int main(int argc, char** argv) {

@@ -10,9 +10,12 @@ namespace mq::transport {
 
 AmqpConnectionHandler::AmqpConnectionHandler(
     const amqp091::ConnectionConfig& config,
-    const muduo::net::TcpConnectionPtr& connection)
+    const muduo::net::TcpConnectionPtr& connection,
+    std::shared_ptr<broker::VirtualHost> virtual_host)
     : connection_(connection),
-      session_(config, [this](const std::string& bytes) { send(bytes); }) {}
+      session_(config,
+               [this](const std::string& bytes) { send(bytes); },
+               std::move(virtual_host)) {}
 
 void AmqpConnectionHandler::onMessage(muduo::net::Buffer* buffer) {
     if (closing_) {
@@ -38,7 +41,8 @@ void AmqpConnectionHandler::send(const std::string& bytes) {
 
 AmqpServer::AmqpServer(uint16_t port, const amqp091::ConnectionConfig& config)
     : server_(&loop_, muduo::net::InetAddress(port), "AmqpServer"),
-      config_(config) {
+      config_(config),
+      virtual_host_(std::make_shared<broker::VirtualHost>()) {
     server_.setConnectionCallback(
         std::bind(&AmqpServer::onConnection, this, std::placeholders::_1));
     server_.setMessageCallback(std::bind(
@@ -57,8 +61,8 @@ void AmqpServer::onConnection(
     if (connection->connected()) {
         ILOG("AMQP connection established: %s",
              connection->peerAddress().toIpPort().c_str());
-        connections_[connection] =
-            std::make_unique<AmqpConnectionHandler>(config_, connection);
+        connections_[connection] = std::make_unique<AmqpConnectionHandler>(
+            config_, connection, virtual_host_);
     } else {
         connections_.erase(connection);
     }

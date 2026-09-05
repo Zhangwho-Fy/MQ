@@ -91,6 +91,36 @@ def close_args(reply_code: int = 200) -> bytes:
     )
 
 
+def exchange_declare_args(name: str, exchange_type: str = "direct") -> bytes:
+    return (
+        struct.pack(">H", 0)  # ticket
+        + shortstr(name)
+        + shortstr(exchange_type)
+        + b"\x00"  # passive/durable/auto-delete/internal/no-wait bits
+        + struct.pack(">I", 0)  # empty arguments table
+    )
+
+
+def queue_declare_args(name: str) -> bytes:
+    return (
+        struct.pack(">H", 0)  # ticket
+        + shortstr(name)
+        + b"\x00"  # passive/durable/exclusive/auto-delete/no-wait bits
+        + struct.pack(">I", 0)  # empty arguments table
+    )
+
+
+def queue_bind_args(queue: str, exchange: str, routing_key: str) -> bytes:
+    return (
+        struct.pack(">H", 0)  # ticket
+        + shortstr(queue)
+        + shortstr(exchange)
+        + shortstr(routing_key)
+        + b"\x00"  # no-wait bit
+        + struct.pack(">I", 0)  # empty arguments table
+    )
+
+
 def check_method(payload: bytes, expected_class: int, expected_method: int) -> None:
     class_id, method_id = struct.unpack(">HH", payload[:4])
     if class_id != expected_class or method_id != expected_method:
@@ -126,6 +156,18 @@ def main() -> int:
         check_method(payload, 20, 11)  # channel.open-ok
         if channel != 1:
             raise AssertionError(f"open-ok must use channel 1, got {channel}")
+
+        sock.sendall(method(40, 10, exchange_declare_args("logs", "fanout"), channel=1))
+        payload, channel = read_frame(sock)
+        check_method(payload, 40, 11)  # exchange.declare-ok
+
+        sock.sendall(method(50, 10, queue_declare_args("q1"), channel=1))
+        payload, channel = read_frame(sock)
+        check_method(payload, 50, 11)  # queue.declare-ok
+
+        sock.sendall(method(50, 20, queue_bind_args("q1", "logs", "task"), channel=1))
+        payload, channel = read_frame(sock)
+        check_method(payload, 50, 21)  # queue.bind-ok
 
         # basic.publish is not implemented yet; it must close only channel 1.
         sock.sendall(method(60, 40, b"", channel=1))

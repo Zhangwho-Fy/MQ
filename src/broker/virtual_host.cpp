@@ -104,6 +104,15 @@ bool VirtualHost::hasQueue(const std::string& name) const {
     return queues_.find(name) != queues_.end();
 }
 
+BrokerResult VirtualHost::purgeQueue(const std::string& name) {
+    const auto it = queues_.find(name);
+    if (it == queues_.end()) {
+        return BrokerResult{false, kNotFound, "queue not found", 0};
+    }
+    // Messages are introduced with the Basic class, so nothing is removed yet.
+    return BrokerResult{};
+}
+
 BrokerResult VirtualHost::bind(const std::string& exchange,
                                const std::string& queue,
                                const std::string& routing_key) {

@@ -21,13 +21,16 @@ bool decodePlainResponse(const std::string& response, std::string& user,
 }  // namespace
 
 ConnectionSession::ConnectionSession(const ConnectionConfig& config,
-                                     SendCallback send)
+                                     SendCallback send,
+                                     std::shared_ptr<broker::VirtualHost>
+                                         virtual_host)
     : config_(config),
       send_(std::move(send)),
       decoder_(config.frame_max),
       channel_max_(config.channel_max),
       frame_max_(config.frame_max),
-      heartbeat_(config.heartbeat) {}
+      heartbeat_(config.heartbeat),
+      virtual_host_(std::move(virtual_host)) {}
 
 SessionResult ConnectionSession::feed(std::string_view bytes) {
     if (state_ == ConnectionState::kClosed) {
@@ -112,7 +115,6 @@ SessionResult ConnectionSession::handleMethod(uint16_t channel,
         return handleChannelMethod(channel, header);
     }
 
-    // Business methods (exchange/queue/basic/tx) will be routed here later.
     if (channel == 0) {
         return fail("business method received on channel 0", 503);
     }
@@ -120,8 +122,226 @@ SessionResult ConnectionSession::handleMethod(uint16_t channel,
         return sendChannelError(channel, 504, header.class_id,
                                 header.method_id, "channel is not open");
     }
+    if (virtual_host_) {
+        if (header.class_id == kExchangeClassId) {
+            return handleExchangeMethod(channel, header);
+        }
+        if (header.class_id == kQueueClassId) {
+            return handleQueueMethod(channel, header);
+        }
+    }
     return sendChannelError(channel, 540, header.class_id, header.method_id,
                             "method not implemented");
+}
+
+SessionResult ConnectionSession::handleExchangeMethod(
+    uint16_t channel, const MethodHeader& header) {
+    const auto method = static_cast<ExchangeMethodId>(header.method_id);
+
+    if (method == ExchangeMethodId::Declare) {
+        ExchangeDeclare declare;
+        std::string error;
+        if (!decodeExchangeDeclare(header.arguments, declare, error)) {
+            return sendChannelError(channel, 502, kExchangeClassId,
+                                    static_cast<uint16_t>(method),
+                                    "invalid exchange.declare");
+        }
+        if (declare.passive && !virtual_host_->hasExchange(declare.exchange)) {
+            return sendChannelError(channel, 404, kExchangeClassId,
+                                    static_cast<uint16_t>(method),
+                                    "exchange not found");
+        }
+        broker::ExchangeSpec spec;
+        spec.name = declare.exchange;
+        spec.type = declare.type;
+        spec.durable = declare.durable;
+        spec.auto_delete = declare.auto_delete;
+        spec.internal = declare.internal;
+        const broker::BrokerResult result =
+            virtual_host_->declareExchange(spec);
+        if (!result.ok) {
+            return sendChannelError(channel, result.reply_code,
+                                    kExchangeClassId,
+                                    static_cast<uint16_t>(method),
+                                    result.error);
+        }
+        if (!declare.no_wait) {
+            return sendMethodOnChannel(
+                channel, kExchangeClassId,
+                static_cast<uint16_t>(ExchangeMethodId::DeclareOk), "");
+        }
+        return SessionResult{};
+    }
+
+    if (method == ExchangeMethodId::Delete) {
+        ExchangeDelete delete_exchange;
+        std::string error;
+        if (!decodeExchangeDelete(header.arguments, delete_exchange, error)) {
+            return sendChannelError(channel, 502, kExchangeClassId,
+                                    static_cast<uint16_t>(method),
+                                    "invalid exchange.delete");
+        }
+        const broker::BrokerResult result = virtual_host_->deleteExchange(
+            delete_exchange.exchange, delete_exchange.if_unused);
+        if (!result.ok) {
+            return sendChannelError(channel, result.reply_code,
+                                    kExchangeClassId,
+                                    static_cast<uint16_t>(method),
+                                    result.error);
+        }
+        if (!delete_exchange.no_wait) {
+            return sendMethodOnChannel(
+                channel, kExchangeClassId,
+                static_cast<uint16_t>(ExchangeMethodId::DeleteOk), "");
+        }
+        return SessionResult{};
+    }
+
+    return sendChannelError(channel, 540, kExchangeClassId,
+                            static_cast<uint16_t>(method),
+                            "exchange method not implemented");
+}
+
+SessionResult ConnectionSession::handleQueueMethod(
+    uint16_t channel, const MethodHeader& header) {
+    const auto method = static_cast<QueueMethodId>(header.method_id);
+
+    if (method == QueueMethodId::Declare) {
+        QueueDeclare declare;
+        std::string error;
+        if (!decodeQueueDeclare(header.arguments, declare, error)) {
+            return sendChannelError(channel, 502, kQueueClassId,
+                                    static_cast<uint16_t>(method),
+                                    "invalid queue.declare");
+        }
+        if (declare.queue.empty()) {
+            declare.queue =
+                "amq.gen-" + std::to_string(++generated_queue_seq_);
+        }
+        if (declare.passive && !virtual_host_->hasQueue(declare.queue)) {
+            return sendChannelError(channel, 404, kQueueClassId,
+                                    static_cast<uint16_t>(method),
+                                    "queue not found");
+        }
+        broker::QueueSpec spec;
+        spec.name = declare.queue;
+        spec.durable = declare.durable;
+        spec.exclusive = declare.exclusive;
+        spec.auto_delete = declare.auto_delete;
+        const broker::BrokerResult result =
+            virtual_host_->declareQueue(spec);
+        if (!result.ok) {
+            return sendChannelError(channel, result.reply_code, kQueueClassId,
+                                    static_cast<uint16_t>(method),
+                                    result.error);
+        }
+        if (!declare.no_wait) {
+            QueueDeclareOk ok;
+            ok.queue = declare.queue;
+            ok.message_count = 0;
+            ok.consumer_count = 0;
+            return sendMethodOnChannel(
+                channel, kQueueClassId,
+                static_cast<uint16_t>(QueueMethodId::DeclareOk),
+                encodeQueueDeclareOk(ok));
+        }
+        return SessionResult{};
+    }
+
+    if (method == QueueMethodId::Bind) {
+        QueueBind bind;
+        std::string error;
+        if (!decodeQueueBind(header.arguments, bind, error)) {
+            return sendChannelError(channel, 502, kQueueClassId,
+                                    static_cast<uint16_t>(method),
+                                    "invalid queue.bind");
+        }
+        const broker::BrokerResult result =
+            virtual_host_->bind(bind.exchange, bind.queue, bind.routing_key);
+        if (!result.ok) {
+            return sendChannelError(channel, result.reply_code, kQueueClassId,
+                                    static_cast<uint16_t>(method),
+                                    result.error);
+        }
+        if (!bind.no_wait) {
+            return sendMethodOnChannel(
+                channel, kQueueClassId,
+                static_cast<uint16_t>(QueueMethodId::BindOk), "");
+        }
+        return SessionResult{};
+    }
+
+    if (method == QueueMethodId::Unbind) {
+        QueueUnbind unbind;
+        std::string error;
+        if (!decodeQueueUnbind(header.arguments, unbind, error)) {
+            return sendChannelError(channel, 502, kQueueClassId,
+                                    static_cast<uint16_t>(method),
+                                    "invalid queue.unbind");
+        }
+        const broker::BrokerResult result = virtual_host_->unbind(
+            unbind.exchange, unbind.queue, unbind.routing_key);
+        if (!result.ok) {
+            return sendChannelError(channel, result.reply_code, kQueueClassId,
+                                    static_cast<uint16_t>(method),
+                                    result.error);
+        }
+        return sendMethodOnChannel(
+            channel, kQueueClassId,
+            static_cast<uint16_t>(QueueMethodId::UnbindOk), "");
+    }
+
+    if (method == QueueMethodId::Purge) {
+        QueuePurge purge;
+        std::string error;
+        if (!decodeQueuePurge(header.arguments, purge, error)) {
+            return sendChannelError(channel, 502, kQueueClassId,
+                                    static_cast<uint16_t>(method),
+                                    "invalid queue.purge");
+        }
+        const broker::BrokerResult result =
+            virtual_host_->purgeQueue(purge.queue);
+        if (!result.ok) {
+            return sendChannelError(channel, result.reply_code, kQueueClassId,
+                                    static_cast<uint16_t>(method),
+                                    result.error);
+        }
+        if (!purge.no_wait) {
+            return sendMethodOnChannel(
+                channel, kQueueClassId,
+                static_cast<uint16_t>(QueueMethodId::PurgeOk),
+                encodeQueuePurgeOk(QueuePurgeOk{}));
+        }
+        return SessionResult{};
+    }
+
+    if (method == QueueMethodId::Delete) {
+        QueueDelete delete_queue;
+        std::string error;
+        if (!decodeQueueDelete(header.arguments, delete_queue, error)) {
+            return sendChannelError(channel, 502, kQueueClassId,
+                                    static_cast<uint16_t>(method),
+                                    "invalid queue.delete");
+        }
+        const broker::BrokerResult result = virtual_host_->deleteQueue(
+            delete_queue.queue, delete_queue.if_unused, delete_queue.if_empty);
+        if (!result.ok) {
+            return sendChannelError(channel, result.reply_code, kQueueClassId,
+                                    static_cast<uint16_t>(method),
+                                    result.error);
+        }
+        if (!delete_queue.no_wait) {
+            return sendMethodOnChannel(
+                channel, kQueueClassId,
+                static_cast<uint16_t>(QueueMethodId::DeleteOk),
+                encodeQueueDeleteOk(QueueDeleteOk{}));
+        }
+        return SessionResult{};
+    }
+
+    return sendChannelError(channel, 540, kQueueClassId,
+                            static_cast<uint16_t>(method),
+                            "queue method not implemented");
 }
 
 SessionResult ConnectionSession::handleChannelMethod(
@@ -352,6 +572,15 @@ SessionResult ConnectionSession::sendMethod(uint16_t class_id,
     const std::string payload =
         encodeMethodHeader(class_id, method_id, arguments);
     sendFrame(kFrameMethod, 0, payload);
+    return SessionResult{};
+}
+
+SessionResult ConnectionSession::sendMethodOnChannel(
+    uint16_t channel, uint16_t class_id, uint16_t method_id,
+    const std::string& arguments) {
+    const std::string payload =
+        encodeMethodHeader(class_id, method_id, arguments);
+    sendFrame(kFrameMethod, channel, payload);
     return SessionResult{};
 }
 
