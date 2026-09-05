@@ -86,6 +86,8 @@ add_library(amqp091_protocol STATIC
     src/protocol/amqp091/connection_methods.cpp
     src/protocol/amqp091/connection_session.cpp
     src/protocol/amqp091/channel_methods.cpp
+    src/protocol/amqp091/exchange_methods.cpp
+    src/protocol/amqp091/queue_methods.cpp
     src/protocol/amqp091/wire_reader.cpp
     src/protocol/amqp091/wire_writer.cpp
 )
@@ -94,6 +96,17 @@ target_include_directories(amqp091_protocol PUBLIC
 )
 target_compile_features(amqp091_protocol PUBLIC cxx_std_17)
 target_compile_options(amqp091_protocol PRIVATE
+    $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic>
+)
+
+add_library(mq_broker STATIC
+    src/broker/virtual_host.cpp
+)
+target_include_directories(mq_broker PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+)
+target_compile_features(mq_broker PUBLIC cxx_std_17)
+target_compile_options(mq_broker PRIVATE
     $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic>
 )
 
@@ -146,6 +159,25 @@ if(MQ_BUILD_TESTS)
             amqp091_protocol GTest::gtest)
         target_compile_features(channel_methods_test PRIVATE cxx_std_17)
         add_test(NAME channel_methods_test COMMAND channel_methods_test)
+
+        add_executable(exchange_methods_test
+            tests/protocol/exchange_methods_test.cpp)
+        target_link_libraries(exchange_methods_test PRIVATE
+            amqp091_protocol GTest::gtest)
+        target_compile_features(exchange_methods_test PRIVATE cxx_std_17)
+        add_test(NAME exchange_methods_test COMMAND exchange_methods_test)
+
+        add_executable(queue_methods_test
+            tests/protocol/queue_methods_test.cpp)
+        target_link_libraries(queue_methods_test PRIVATE
+            amqp091_protocol GTest::gtest)
+        target_compile_features(queue_methods_test PRIVATE cxx_std_17)
+        add_test(NAME queue_methods_test COMMAND queue_methods_test)
+
+        add_executable(virtual_host_test tests/broker/virtual_host_test.cpp)
+        target_link_libraries(virtual_host_test PRIVATE mq_broker GTest::gtest)
+        target_compile_features(virtual_host_test PRIVATE cxx_std_17)
+        add_test(NAME virtual_host_test COMMAND virtual_host_test)
 
         set(MQ_GTEST_SOURCES
             mq_bindingtest
