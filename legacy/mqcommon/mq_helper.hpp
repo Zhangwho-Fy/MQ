@@ -18,7 +18,7 @@
 
 #include <sqlite3.h>
 
-#include "../common/mq_logger.hpp"
+#include "../../common/mq_logger.hpp"
 
 namespace Fy_mq{
 class SqliteHelper{
