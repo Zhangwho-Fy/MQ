@@ -1,6 +1,7 @@
 #include "mq/broker/virtual_host.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <vector>
 
 namespace mq::broker {
@@ -10,6 +11,13 @@ namespace {
 bool validExchangeType(const std::string& type) {
     return type == "direct" || type == "fanout" || type == "topic" ||
            type == "headers";
+}
+
+uint64_t nowMs() {
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
 }
 
 bool topicMatches(const std::string& binding_key,
@@ -123,7 +131,8 @@ BrokerResult VirtualHost::declareQueue(const QueueSpec& spec) {
             existing.auto_delete != spec.auto_delete ||
             existing.dead_letter_exchange != spec.dead_letter_exchange ||
             existing.dead_letter_routing_key !=
-                spec.dead_letter_routing_key) {
+                spec.dead_letter_routing_key ||
+            existing.message_ttl_ms != spec.message_ttl_ms) {
             return BrokerResult{false, kPreconditionFailed,
                                 "inequivalent queue declaration", 0};
         }
@@ -172,6 +181,7 @@ BrokerResult VirtualHost::purgeQueue(const std::string& name) {
     if (it == queues_.end()) {
         return BrokerResult{false, kNotFound, "queue not found", 0};
     }
+    expireMessages(name);
     const uint32_t removed =
         static_cast<uint32_t>(it->second.messages.size());
     it->second.messages.clear();
@@ -190,6 +200,10 @@ BrokerResult VirtualHost::publish(const std::string& exchange,
         Message copy = message;
         copy.id = next_message_id_++;
         copy.redelivered = false;
+        if (copy.expire_at_ms == 0 && it->second.spec.message_ttl_ms > 0) {
+            copy.expire_at_ms =
+                nowMs() + static_cast<uint64_t>(it->second.spec.message_ttl_ms);
+        }
         it->second.messages.push_back(copy);
         ++count;
         deliverPending(queue);
@@ -347,6 +361,7 @@ void VirtualHost::deadLetter(const std::string& source_queue,
                            ? message.routing_key
                            : spec.dead_letter_routing_key;
     ++copy.dead_letter_count;
+    copy.expire_at_ms = 0;
     publish(spec.dead_letter_exchange, copy.routing_key, copy, nullptr);
 }
 
@@ -357,9 +372,29 @@ std::string VirtualHost::deadLetterExchange(
                                : it->second.spec.dead_letter_exchange;
 }
 
+int64_t VirtualHost::messageTtl(const std::string& queue) const {
+    const auto it = queues_.find(queue);
+    return it == queues_.end() ? 0 : it->second.spec.message_ttl_ms;
+}
+
+void VirtualHost::expireMessages(const std::string& queue) {
+    const auto queue_it = queues_.find(queue);
+    if (queue_it == queues_.end()) return;
+    auto& messages = queue_it->second.messages;
+    const uint64_t now = nowMs();
+    while (!messages.empty()) {
+        const Message& front = messages.front();
+        if (front.expire_at_ms == 0 || front.expire_at_ms > now) break;
+        Message expired = messages.front();
+        messages.pop_front();
+        deadLetter(queue, expired);
+    }
+}
+
 void VirtualHost::deliverPending(const std::string& queue) {
     const auto queue_it = queues_.find(queue);
     if (queue_it == queues_.end()) return;
+    expireMessages(queue);
     const auto consumer_it = consumers_.find(queue);
     if (consumer_it == consumers_.end() || consumer_it->second.empty()) return;
 

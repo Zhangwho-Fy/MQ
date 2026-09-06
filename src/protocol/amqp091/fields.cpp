@@ -98,6 +98,12 @@ void FieldTable::addString(const std::string& name, const std::string& value) {
     entries_.push_back(FieldTableEntry{name, 'S', writer.takeBytes()});
 }
 
+void FieldTable::addInt32(const std::string& name, int32_t value) {
+    WireWriter writer;
+    writer.writeU32(static_cast<uint32_t>(value));
+    entries_.push_back(FieldTableEntry{name, 'I', writer.takeBytes()});
+}
+
 void FieldTable::addTable(const std::string& name,
                           const std::string& encoded_table) {
     entries_.push_back(FieldTableEntry{name, 'F', encoded_table});
@@ -127,6 +133,35 @@ bool FieldTable::findBool(const std::string& name, bool& value) const {
     for (const auto& entry : entries_) {
         if (entry.name == name && entry.type == 't' && entry.value.size() == 1) {
             value = entry.value[0] != 0;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool FieldTable::findInt64(const std::string& name, int64_t& value) const {
+    for (const auto& entry : entries_) {
+        if (entry.name != name) continue;
+        if (entry.type == 'I' && entry.value.size() == 4) {
+            const uint32_t raw =
+                (static_cast<uint32_t>(static_cast<uint8_t>(entry.value[0]))
+                 << 24) |
+                (static_cast<uint32_t>(static_cast<uint8_t>(entry.value[1]))
+                 << 16) |
+                (static_cast<uint32_t>(static_cast<uint8_t>(entry.value[2]))
+                 << 8) |
+                static_cast<uint32_t>(static_cast<uint8_t>(entry.value[3]));
+            value = static_cast<int32_t>(raw);
+            return true;
+        }
+        if (entry.type == 'l' && entry.value.size() == 8) {
+            uint64_t raw = 0;
+            for (size_t i = 0; i < 8; ++i) {
+                raw = (raw << 8) |
+                      static_cast<uint64_t>(
+                          static_cast<uint8_t>(entry.value[i]));
+            }
+            value = static_cast<int64_t>(raw);
             return true;
         }
     }

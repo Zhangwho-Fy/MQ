@@ -2,6 +2,9 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <thread>
+
 namespace mq::broker {
 
 TEST(VirtualHostTest, DeclaresAndDeletesExchanges) {
@@ -281,6 +284,32 @@ TEST(VirtualHostTest, RejectWithoutRequeueDeadLetters) {
 
     ASSERT_TRUE(host.rejectMessage(delivered_ids[0], false).ok);
     EXPECT_EQ(host.unackedCount(), 0U);
+    EXPECT_EQ(host.messageCount("dlq"), 1U);
+}
+
+TEST(VirtualHostTest, TtlExpiredMessagesDeadLetterOnPurge) {
+    VirtualHost host;
+    ASSERT_TRUE(host.declareExchange(
+                    ExchangeSpec{"dlx", "direct", false, false, false})
+                    .ok);
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"dlq", false, false, false}).ok);
+    ASSERT_TRUE(host.bind("dlx", "dlq", "expired").ok);
+
+    QueueSpec source;
+    source.name = "q1";
+    source.dead_letter_exchange = "dlx";
+    source.dead_letter_routing_key = "expired";
+    source.message_ttl_ms = 20;
+    ASSERT_TRUE(host.declareQueue(source).ok);
+    EXPECT_EQ(host.messageTtl("q1"), 20);
+
+    ASSERT_TRUE(host.publish("", "q1", Message{"old", false}).ok);
+    EXPECT_EQ(host.messageCount("q1"), 1U);
+    std::this_thread::sleep_for(std::chrono::milliseconds(40));
+
+    const BrokerResult purged = host.purgeQueue("q1");
+    ASSERT_TRUE(purged.ok) << purged.error;
+    EXPECT_EQ(purged.count, 0U);
     EXPECT_EQ(host.messageCount("dlq"), 1U);
 }
 

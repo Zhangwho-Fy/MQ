@@ -251,6 +251,11 @@ SessionResult ConnectionSession::handleQueueMethod(
             dlx_rk != nullptr) {
             spec.dead_letter_routing_key = *dlx_rk;
         }
+        int64_t message_ttl_ms = 0;
+        if (declare.arguments.findInt64("x-message-ttl", message_ttl_ms) &&
+            message_ttl_ms > 0) {
+            spec.message_ttl_ms = message_ttl_ms;
+        }
         const broker::BrokerResult result =
             virtual_host_->declareQueue(spec);
         if (!result.ok) {

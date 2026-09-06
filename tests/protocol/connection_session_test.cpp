@@ -362,6 +362,7 @@ TEST(ConnectionSessionTest, DeclaresExchangeQueueAndBind) {
     queue.durable = true;
     queue.arguments.addString("x-dead-letter-exchange", "dlx");
     queue.arguments.addString("x-dead-letter-routing-key", "dead.rk");
+    queue.arguments.addInt32("x-message-ttl", 60000);
     ASSERT_TRUE(session
                     .feed(encodeMethodFrame(
                         kQueueClassId,
@@ -370,6 +371,7 @@ TEST(ConnectionSessionTest, DeclaresExchangeQueueAndBind) {
                     .ok);
     ASSERT_EQ(sent.size(), 6U);
     EXPECT_EQ(host->deadLetterExchange("task_queue"), "dlx");
+    EXPECT_EQ(host->messageTtl("task_queue"), 60000);
 
     QueueBind bind;
     bind.queue = "task_queue";

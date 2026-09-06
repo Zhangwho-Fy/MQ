@@ -46,6 +46,19 @@ TEST(FieldsTest, EncodesAndDecodesNestedTable) {
     EXPECT_EQ(decoded.entries()[1].value, capabilities_bytes);
 }
 
+TEST(FieldsTest, ReadsInt32Arguments) {
+    FieldTable table;
+    table.addInt32("x-message-ttl", 60000);
+
+    const std::string encoded = encodeFieldTable(table);
+    FieldTable decoded;
+    std::string error;
+    ASSERT_TRUE(decodeFieldTable(encoded, decoded, error)) << error;
+    int64_t ttl = 0;
+    ASSERT_TRUE(decoded.findInt64("x-message-ttl", ttl));
+    EXPECT_EQ(ttl, 60000);
+}
+
 TEST(FieldsTest, RejectsTruncatedTable) {
     FieldTable decoded;
     std::string error;

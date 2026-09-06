@@ -25,10 +25,12 @@ public:
     void addBool(const std::string& name, bool value);
     void addString(const std::string& name, const std::string& value);
     void addTable(const std::string& name, const std::string& encoded_table);
+    void addInt32(const std::string& name, int32_t value);
     void addEntry(FieldTableEntry entry);
 
     const std::string* findString(const std::string& name) const;
     bool findBool(const std::string& name, bool& value) const;
+    bool findInt64(const std::string& name, int64_t& value) const;
 
 private:
     std::vector<FieldTableEntry> entries_;
