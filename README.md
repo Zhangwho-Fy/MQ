@@ -45,6 +45,13 @@ cmake --build build -j4
 ./build/amqp_server -p 5672 --data ./data
 ```
 
+配置用户与 vhost（默认 `guest/guest` 可访问 `/`）：
+
+```bash
+MQ_USERS='alice:secret:/alice;bob:pass:/bob' \
+  ./build/amqp_server -p 5672 --data ./data
+```
+
 启用管理 HTTP API：
 
 ```bash

@@ -54,10 +54,17 @@ struct SessionResult {
 class ConnectionSession {
 public:
     using SendCallback = std::function<void(const std::string&)>;
+    using AuthCallback =
+        std::function<bool(const std::string& username,
+                           const std::string& password)>;
+    using VhostResolver = std::function<std::shared_ptr<broker::VirtualHost>(
+        const std::string& username, const std::string& vhost)>;
 
     ConnectionSession(const ConnectionConfig& config, SendCallback send,
                       std::shared_ptr<broker::VirtualHost> virtual_host =
-                          nullptr);
+                          nullptr,
+                      AuthCallback auth_callback = {},
+                      VhostResolver vhost_resolver = {});
     ~ConnectionSession();
 
     SessionResult feed(std::string_view bytes);
@@ -152,6 +159,9 @@ private:
     uint64_t generated_consumer_seq_ = 0;
     std::shared_ptr<broker::VirtualHost> virtual_host_;
     uint64_t generated_queue_seq_ = 0;
+    AuthCallback auth_callback_;
+    VhostResolver vhost_resolver_;
+    std::string authenticated_user_;
 };
 
 }  // namespace mq::amqp091

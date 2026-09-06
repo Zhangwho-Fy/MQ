@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 int main(int argc, char** argv) {
     uint16_t port = 5672;
@@ -50,6 +51,34 @@ int main(int argc, char** argv) {
 
     ILOG("starting AMQP server on 0.0.0.0:%u", static_cast<unsigned>(port));
     mq::transport::AmqpServer server(port, config, data_dir, http_port);
+    if (const char* users = std::getenv("MQ_USERS"); users != nullptr) {
+        std::string all = users;
+        size_t start = 0;
+        while (start <= all.size()) {
+            const size_t sep = all.find(';', start);
+            const std::string entry =
+                all.substr(start, sep == std::string::npos
+                                       ? std::string::npos
+                                       : sep - start);
+            const size_t colon1 = entry.find(':');
+            const size_t colon2 =
+                colon1 == std::string::npos
+                    ? std::string::npos
+                    : entry.find(':', colon1 + 1);
+            if (colon1 != std::string::npos &&
+                colon2 != std::string::npos) {
+                const std::string name = entry.substr(0, colon1);
+                const std::string password =
+                    entry.substr(colon1 + 1, colon2 - colon1 - 1);
+                const std::string vhost_name = entry.substr(colon2 + 1);
+                server.addUser(name, password, vhost_name);
+                ILOG("configured user %s for vhost %s", name.c_str(),
+                     vhost_name.c_str());
+            }
+            if (sep == std::string::npos) break;
+            start = sep + 1;
+        }
+    }
     server.run();
     return 0;
 }

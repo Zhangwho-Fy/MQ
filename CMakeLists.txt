@@ -64,6 +64,8 @@ target_compile_options(amqp091_protocol PRIVATE
 
 add_library(mq_broker STATIC
     src/broker/virtual_host.cpp
+    src/broker/broker.cpp
+    src/broker/password.cpp
 )
 target_include_directories(mq_broker PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
@@ -73,6 +75,7 @@ target_compile_options(mq_broker PRIVATE
     $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic>
 )
 target_link_libraries(mq_broker PUBLIC SQLite::SQLite3)
+target_link_libraries(mq_broker PUBLIC ${CMAKE_DL_LIBS})
 
 target_link_libraries(amqp091_protocol PUBLIC mq_broker)
 
@@ -157,6 +160,11 @@ if(MQ_BUILD_TESTS)
         target_link_libraries(virtual_host_test PRIVATE mq_broker GTest::gtest)
         target_compile_features(virtual_host_test PRIVATE cxx_std_17)
         add_test(NAME virtual_host_test COMMAND virtual_host_test)
+
+        add_executable(broker_test tests/broker/broker_test.cpp)
+        target_link_libraries(broker_test PRIVATE mq_broker GTest::gtest)
+        target_compile_features(broker_test PRIVATE cxx_std_17)
+        add_test(NAME broker_test COMMAND broker_test)
 
     else()
         message(WARNING "GTest was not found; protocol tests are skipped")

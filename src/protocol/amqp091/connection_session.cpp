@@ -25,14 +25,18 @@ bool decodePlainResponse(const std::string& response, std::string& user,
 ConnectionSession::ConnectionSession(const ConnectionConfig& config,
                                      SendCallback send,
                                      std::shared_ptr<broker::VirtualHost>
-                                         virtual_host)
+                                         virtual_host,
+                                     AuthCallback auth_callback,
+                                     VhostResolver vhost_resolver)
     : config_(config),
       send_(std::move(send)),
       decoder_(config.frame_max),
       channel_max_(config.channel_max),
       frame_max_(config.frame_max),
       heartbeat_(config.heartbeat),
-      virtual_host_(std::move(virtual_host)) {}
+      virtual_host_(std::move(virtual_host)),
+      auth_callback_(std::move(auth_callback)),
+      vhost_resolver_(std::move(vhost_resolver)) {}
 
 ConnectionSession::~ConnectionSession() {
     if (virtual_host_) virtual_host_->disconnectOwner(this);
@@ -971,10 +975,18 @@ SessionResult ConnectionSession::handleConnectionMethod(
         }
         std::string user;
         std::string password;
-        if (!decodePlainResponse(start_ok.response, user, password) ||
-            user != config_.username || password != config_.password) {
+        if (!decodePlainResponse(start_ok.response, user, password)) {
             return fail("authentication failed", 403);
         }
+        bool authenticated = false;
+        if (auth_callback_) {
+            authenticated = auth_callback_(user, password);
+        } else {
+            authenticated =
+                user == config_.username && password == config_.password;
+        }
+        if (!authenticated) return fail("authentication failed", 403);
+        authenticated_user_ = user;
 
         ConnectionTune tune;
         tune.channel_max = config_.channel_max;
@@ -1024,8 +1036,18 @@ SessionResult ConnectionSession::handleConnectionMethod(
         if (!decodeConnectionOpen(header.arguments, open, error)) {
             return fail(error, 502);
         }
-        if (!open.virtual_host.empty() &&
-            open.virtual_host != config_.virtual_host) {
+        std::string vhost_name =
+            open.virtual_host.empty() ? "/" : open.virtual_host;
+        if (vhost_resolver_) {
+            if (authenticated_user_.empty()) {
+                return fail("authentication required", 403);
+            }
+            virtual_host_ =
+                vhost_resolver_(authenticated_user_, vhost_name);
+            if (!virtual_host_) {
+                return fail("virtual host not allowed", 403);
+            }
+        } else if (vhost_name != config_.virtual_host) {
             return fail("unknown virtual host", 402);
         }
         const std::string open_ok = encodeMethodHeader(

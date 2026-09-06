@@ -33,11 +33,21 @@ std::string jsonEscape(const std::string& value) {
 AmqpConnectionHandler::AmqpConnectionHandler(
     const amqp091::ConnectionConfig& config,
     const muduo::net::TcpConnectionPtr& connection,
-    std::shared_ptr<broker::VirtualHost> virtual_host)
+    std::shared_ptr<broker::Broker> broker)
     : connection_(connection),
       session_(config,
                [this](const std::string& bytes) { send(bytes); },
-               std::move(virtual_host)),
+               broker ? broker->vhost("/") : nullptr,
+               [broker](const std::string& username,
+                        const std::string& password) {
+                   return broker &&
+                          broker->authenticate(username, password);
+               },
+               [broker](const std::string& username,
+                        const std::string& vhost_name) {
+                   return broker ? broker->resolveVhost(username, vhost_name)
+                                 : nullptr;
+               }),
       last_receive_(std::chrono::steady_clock::now()),
       heartbeat_interval_(config.heartbeat) {}
 
@@ -121,8 +131,7 @@ AmqpServer::AmqpServer(uint16_t port, const amqp091::ConnectionConfig& config,
                       std::string data_dir, uint16_t management_port)
     : server_(&loop_, muduo::net::InetAddress(port), "AmqpServer"),
       config_(config),
-      virtual_host_(std::make_shared<broker::VirtualHost>(
-          std::move(data_dir))),
+      broker_(std::make_shared<broker::Broker>(std::move(data_dir))),
       management_port_(management_port) {
     server_.setThreadNum(4);
     server_.setConnectionCallback(
@@ -150,13 +159,19 @@ void AmqpServer::run() {
     loop_.loop();
 }
 
+bool AmqpServer::addUser(const std::string& username,
+                         const std::string& password,
+                         const std::string& vhost_name) {
+    return broker_->addUser(username, password, {vhost_name});
+}
+
 void AmqpServer::onConnection(
     const muduo::net::TcpConnectionPtr& connection) {
     if (connection->connected()) {
         ILOG("AMQP connection established: %s",
              connection->peerAddress().toIpPort().c_str());
         auto handler = std::make_shared<AmqpConnectionHandler>(
-            config_, connection, virtual_host_);
+            config_, connection, broker_);
         handler->startHeartbeat();
         std::lock_guard<std::mutex> lock(connections_mutex_);
         connections_[connection] = std::move(handler);
@@ -188,10 +203,12 @@ void AmqpServer::onHttpRequest(const muduo::net::HttpRequest& request,
     response->setStatusCode(muduo::net::HttpResponse::k200Ok);
     response->setStatusMessage("OK");
     const std::string& path = request.path();
+    const std::shared_ptr<broker::VirtualHost> vhost =
+        broker_->vhost("/");
 
     if (path == "/api/overview") {
-        const auto queues = virtual_host_->listQueues();
-        const auto exchanges = virtual_host_->listExchanges();
+        const auto queues = vhost->listQueues();
+        const auto exchanges = vhost->listExchanges();
         response->setBody(
             "{\"connections\":" + std::to_string(connectionCount()) +
             ",\"queues\":" + std::to_string(queues.size()) +
@@ -202,7 +219,7 @@ void AmqpServer::onHttpRequest(const muduo::net::HttpRequest& request,
     if (path == "/api/queues") {
         std::string body = "[";
         bool first = true;
-        for (const auto& queue : virtual_host_->listQueues()) {
+        for (const auto& queue : vhost->listQueues()) {
             if (!first) body += ",";
             first = false;
             body += "{\"name\":\"" + jsonEscape(queue.name) +
@@ -229,7 +246,7 @@ void AmqpServer::onHttpRequest(const muduo::net::HttpRequest& request,
     if (path == "/api/exchanges") {
         std::string body = "[";
         bool first = true;
-        for (const auto& exchange : virtual_host_->listExchanges()) {
+        for (const auto& exchange : vhost->listExchanges()) {
             if (!first) body += ",";
             first = false;
             body += "{\"name\":\"" + jsonEscape(exchange.name) +
@@ -250,7 +267,7 @@ void AmqpServer::onHttpRequest(const muduo::net::HttpRequest& request,
         const std::string queue_name = path.substr(std::string("/api/queues/").size());
         if (request.method() == muduo::net::HttpRequest::kDelete) {
             const broker::BrokerResult result =
-                virtual_host_->deleteQueue(queue_name, false, false);
+                vhost->deleteQueue(queue_name, false, false);
             if (result.ok) {
                 response->setBody("{\"deleted\":true}");
             } else {
@@ -261,7 +278,7 @@ void AmqpServer::onHttpRequest(const muduo::net::HttpRequest& request,
             }
             return;
         }
-        for (const auto& queue : virtual_host_->listQueues()) {
+        for (const auto& queue : vhost->listQueues()) {
             if (queue.name == queue_name) {
                 response->setBody("{\"name\":\"" + jsonEscape(queue.name) +
                                   "\",\"message_count\":" +
