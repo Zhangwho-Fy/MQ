@@ -48,6 +48,7 @@ struct Message {
     uint64_t expire_at_ms = 0;
     uint32_t ttl_ms = 0;
     void* publisher_owner = nullptr;
+    std::string header_payload;
 };
 
 using ConsumerDeliver =

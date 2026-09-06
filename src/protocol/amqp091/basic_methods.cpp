@@ -209,6 +209,23 @@ bool decodeBasicAck(std::string_view arguments, BasicAck& ack,
     return readBits(reader, {&ack.multiple});
 }
 
+std::string encodeBasicNack(const BasicNack& nack) {
+    WireWriter writer;
+    writer.writeU64(nack.delivery_tag);
+    writeBits(writer, {nack.multiple, nack.requeue});
+    return writer.takeBytes();
+}
+
+bool decodeBasicNack(std::string_view arguments, BasicNack& nack,
+                     std::string& error) {
+    WireReader reader(arguments);
+    if (!reader.readU64(nack.delivery_tag)) {
+        error = "truncated basic.nack";
+        return false;
+    }
+    return readBits(reader, {&nack.multiple, &nack.requeue});
+}
+
 std::string encodeBasicReject(const BasicReject& reject) {
     WireWriter writer;
     writer.writeU64(reject.delivery_tag);
@@ -288,6 +305,18 @@ bool decodeBasicQos(std::string_view arguments, BasicQos& qos,
         return false;
     }
     return readBits(reader, {&qos.global});
+}
+
+std::string encodeBasicRecover(const BasicRecover& recover) {
+    WireWriter writer;
+    writeBits(writer, {recover.requeue});
+    return writer.takeBytes();
+}
+
+bool decodeBasicRecover(std::string_view arguments, BasicRecover& recover,
+                        std::string& error) {
+    WireReader reader(arguments);
+    return readBits(reader, {&recover.requeue});
 }
 
 std::string encodeContentHeader(uint64_t body_size) {

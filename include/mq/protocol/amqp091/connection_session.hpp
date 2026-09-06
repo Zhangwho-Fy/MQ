@@ -4,6 +4,7 @@
 #include "connection_methods.hpp"
 #include "channel_methods.hpp"
 #include "basic_methods.hpp"
+#include "confirm_methods.hpp"
 #include "exchange_methods.hpp"
 #include "frame_codec.hpp"
 #include "queue_methods.hpp"
@@ -13,6 +14,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <string_view>
 
@@ -97,6 +99,8 @@ private:
     SessionResult handleMethod(uint16_t channel, std::string_view payload);
     SessionResult handleBasicMethod(uint16_t channel,
                                     const MethodHeader& header);
+    SessionResult handleConfirmMethod(uint16_t channel,
+                                      const MethodHeader& header);
     SessionResult handleContentFrame(uint16_t channel, const Frame& frame);
     SessionResult finishPendingContent(uint16_t channel,
                                        PendingContent& pending);
@@ -143,6 +147,8 @@ private:
     std::map<uint16_t, uint16_t> channel_prefetch_;
     std::map<uint16_t, std::map<uint64_t, uint64_t>>
         delivery_tag_to_message_;
+    std::set<uint16_t> confirm_channels_;
+    std::map<uint16_t, uint64_t> publish_seq_;
     uint64_t generated_consumer_seq_ = 0;
     std::shared_ptr<broker::VirtualHost> virtual_host_;
     uint64_t generated_queue_seq_ = 0;

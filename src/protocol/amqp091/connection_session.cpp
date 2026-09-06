@@ -61,6 +61,12 @@ SessionResult ConnectionSession::feed(std::string_view bytes) {
         start.version_minor = 9;
         start.server_properties.addString("product", "FyMQ");
         start.server_properties.addString("version", "0.1.0");
+        FieldTable capabilities;
+        capabilities.addBool("publisher_confirms", true);
+        capabilities.addBool("consumer_cancel_notify", true);
+        capabilities.addBool("basic.nack", true);
+        start.server_properties.addTable(
+            "capabilities", encodeFieldTable(capabilities));
         start.mechanisms = config_.mechanisms;
         start.locales = config_.locales;
         const SessionResult sent = sendMethod(
@@ -140,6 +146,9 @@ SessionResult ConnectionSession::handleMethod(uint16_t channel,
         }
         if (header.class_id == kBasicClassId) {
             return handleBasicMethod(channel, header);
+        }
+        if (header.class_id == kConfirmClassId) {
+            return handleConfirmMethod(channel, header);
         }
     }
     return sendChannelError(channel, 540, header.class_id, header.method_id,
@@ -583,6 +592,24 @@ SessionResult ConnectionSession::handleBasicMethod(
         return SessionResult{};
     }
 
+    if (method == BasicMethodId::Recover ||
+        method == BasicMethodId::RecoverAsync) {
+        BasicRecover recover;
+        std::string error;
+        if (!decodeBasicRecover(header.arguments, recover, error)) {
+            return sendChannelError(channel, 502, kBasicClassId,
+                                    static_cast<uint16_t>(method),
+                                    "invalid basic.recover");
+        }
+        virtual_host_->requeueUnacked(this);
+        if (method == BasicMethodId::Recover) {
+            return sendMethodOnChannel(
+                channel, kBasicClassId,
+                static_cast<uint16_t>(BasicMethodId::RecoverOk), "");
+        }
+        return SessionResult{};
+    }
+
     if (method == BasicMethodId::Get) {
         BasicGet get;
         std::string error;
@@ -626,14 +653,42 @@ SessionResult ConnectionSession::handleBasicMethod(
             static_cast<uint16_t>(BasicMethodId::GetOk),
             encodeBasicGetOk(ok));
         if (!sent.ok) return sent;
-        sendContent(channel, encodeContentHeader(message.body.size()),
-                    message.body);
+        const std::string header_payload =
+            message.header_payload.empty()
+                ? encodeContentHeader(message.body.size())
+                : message.header_payload;
+        sendContent(channel, header_payload, message.body);
         return SessionResult{};
     }
 
     return sendChannelError(channel, 540, kBasicClassId,
                             static_cast<uint16_t>(method),
                             "basic method not implemented");
+}
+
+SessionResult ConnectionSession::handleConfirmMethod(
+    uint16_t channel, const MethodHeader& header) {
+    const auto method = static_cast<ConfirmMethodId>(header.method_id);
+    if (method == ConfirmMethodId::Select) {
+        ConfirmSelect select;
+        std::string error;
+        if (!decodeConfirmSelect(header.arguments, select, error)) {
+            return sendChannelError(channel, 502, kConfirmClassId,
+                                    static_cast<uint16_t>(method),
+                                    "invalid confirm.select");
+        }
+        confirm_channels_.insert(channel);
+        if (!select.no_wait) {
+            return sendMethodOnChannel(
+                channel, kConfirmClassId,
+                static_cast<uint16_t>(ConfirmMethodId::SelectOk),
+                encodeConfirmSelectOk());
+        }
+        return SessionResult{};
+    }
+    return sendChannelError(channel, 540, kConfirmClassId,
+                            static_cast<uint16_t>(method),
+                            "confirm method not implemented");
 }
 
 void ConnectionSession::sendContent(uint16_t channel,
@@ -669,8 +724,11 @@ void ConnectionSession::deliverToConsumer(
         channel, kBasicClassId,
         static_cast<uint16_t>(BasicMethodId::Deliver),
         encodeBasicDeliver(deliver));
-    sendContent(channel, encodeContentHeader(message.body.size()),
-                message.body);
+    const std::string header_payload =
+        message.header_payload.empty()
+            ? encodeContentHeader(message.body.size())
+            : message.header_payload;
+    sendContent(channel, header_payload, message.body);
 }
 
 SessionResult ConnectionSession::handleContentFrame(uint16_t channel,
@@ -721,6 +779,7 @@ SessionResult ConnectionSession::finishPendingContent(
     message.exchange = pending.publish.exchange;
     message.routing_key = pending.publish.routing_key;
     message.publisher_owner = this;
+    message.header_payload = pending.header_payload;
     if (!pending.header.expiration.empty()) {
         try {
             const uint64_t expiration_ms =
@@ -733,11 +792,25 @@ SessionResult ConnectionSession::finishPendingContent(
         }
     }
 
+    const bool confirm_mode =
+        confirm_channels_.find(channel) != confirm_channels_.end();
+    uint64_t publish_tag = 0;
+    if (confirm_mode) {
+        publish_tag = ++publish_seq_[channel];
+    }
     size_t delivered = 0;
     broker::BrokerResult result = virtual_host_->publish(
         pending.publish.exchange, pending.publish.routing_key, message,
         &delivered);
     if (!result.ok) {
+        if (confirm_mode) {
+            BasicNack nack;
+            nack.delivery_tag = publish_tag;
+            sendMethodOnChannel(
+                channel, kBasicClassId,
+                static_cast<uint16_t>(BasicMethodId::Nack),
+                encodeBasicNack(nack));
+        }
         return sendChannelError(channel, result.reply_code, kBasicClassId,
                                 static_cast<uint16_t>(
                                     BasicMethodId::Publish),
@@ -768,6 +841,14 @@ SessionResult ConnectionSession::finishPendingContent(
                       std::string_view(message.body).substr(offset, count));
             offset += count;
         }
+    }
+    if (confirm_mode) {
+        BasicAck confirm_ack;
+        confirm_ack.delivery_tag = publish_tag;
+        sendMethodOnChannel(
+            channel, kBasicClassId,
+            static_cast<uint16_t>(BasicMethodId::Ack),
+            encodeBasicAck(confirm_ack));
     }
     return SessionResult{};
 }

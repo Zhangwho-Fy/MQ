@@ -31,6 +31,7 @@ def main() -> int:
     channel.queue_bind(queue="pika_q", exchange="pika_logs", routing_key="")
 
     channel.basic_qos(prefetch_count=1)
+    channel.confirm_delivery()
 
     received = []
 

@@ -29,6 +29,7 @@ enum class BasicMethodId : uint16_t {
     RecoverAsync = 100,
     Recover = 110,
     RecoverOk = 111,
+    Nack = 120,
 };
 
 struct BasicPublish {
@@ -75,6 +76,12 @@ struct BasicAck {
     bool multiple = false;
 };
 
+struct BasicNack {
+    uint64_t delivery_tag = 0;
+    bool multiple = false;
+    bool requeue = false;
+};
+
 struct BasicReject {
     uint64_t delivery_tag = 0;
     bool requeue = false;
@@ -92,6 +99,10 @@ struct BasicGetOk {
     std::string exchange;
     std::string routing_key;
     uint32_t message_count = 0;
+};
+
+struct BasicRecover {
+    bool requeue = false;
 };
 
 struct BasicQos {
@@ -127,6 +138,10 @@ std::string encodeBasicAck(const BasicAck& ack);
 bool decodeBasicAck(std::string_view arguments, BasicAck& ack,
                     std::string& error);
 
+std::string encodeBasicNack(const BasicNack& nack);
+bool decodeBasicNack(std::string_view arguments, BasicNack& nack,
+                     std::string& error);
+
 std::string encodeBasicReject(const BasicReject& reject);
 bool decodeBasicReject(std::string_view arguments, BasicReject& reject,
                        std::string& error);
@@ -142,6 +157,10 @@ bool decodeBasicGetOk(std::string_view arguments, BasicGetOk& ok,
 std::string encodeBasicQos(const BasicQos& qos);
 bool decodeBasicQos(std::string_view arguments, BasicQos& qos,
                     std::string& error);
+
+std::string encodeBasicRecover(const BasicRecover& recover);
+bool decodeBasicRecover(std::string_view arguments, BasicRecover& recover,
+                        std::string& error);
 
 struct ContentHeaderInfo {
     uint16_t class_id = 0;

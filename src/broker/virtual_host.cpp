@@ -281,6 +281,8 @@ void VirtualHost::appendMessageLog(const std::string& queue,
     appendU64(record, message.expire_at_ms);
     appendU32(record, message.ttl_ms);
     appendU32(record, message.dead_letter_count);
+    appendU32(record, static_cast<uint32_t>(message.header_payload.size()));
+    record.append(message.header_payload);
     appendFile(queueLogPath(data_dir_, queue), record);
 }
 
@@ -362,6 +364,15 @@ void VirtualHost::recoverQueueMessages(const std::string& queue) {
             }
             message.ttl_ms = ttl;
             message.dead_letter_count = dlc;
+            if (pos + 4 > data.size()) break;
+            uint32_t header_len = 0;
+            for (int i = 0; i < 4; ++i) {
+                header_len =
+                    (header_len << 8) | static_cast<uint8_t>(data[pos++]);
+            }
+            if (pos + header_len > data.size()) break;
+            message.header_payload.assign(data.data() + pos, header_len);
+            pos += header_len;
             message.persistent = true;
             order.push_back(id);
             by_id[id] = std::move(message);

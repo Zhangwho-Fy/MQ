@@ -100,6 +100,20 @@ TEST(BasicMethodsTest, AckAndRejectRoundTrip) {
     EXPECT_TRUE(decoded_reject.requeue);
 }
 
+TEST(BasicMethodsTest, NackRoundTrip) {
+    BasicNack nack;
+    nack.delivery_tag = 4;
+    nack.multiple = true;
+    nack.requeue = false;
+    BasicNack decoded;
+    std::string error;
+    ASSERT_TRUE(decodeBasicNack(encodeBasicNack(nack), decoded, error))
+        << error;
+    EXPECT_EQ(decoded.delivery_tag, 4U);
+    EXPECT_TRUE(decoded.multiple);
+    EXPECT_FALSE(decoded.requeue);
+}
+
 TEST(BasicMethodsTest, GetRoundTrip) {
     BasicGet get;
     get.queue = "q1";
@@ -138,6 +152,17 @@ TEST(BasicMethodsTest, QosRoundTrip) {
     EXPECT_EQ(decoded.prefetch_size, 1024U);
     EXPECT_EQ(decoded.prefetch_count, 10U);
     EXPECT_TRUE(decoded.global);
+}
+
+TEST(BasicMethodsTest, RecoverRoundTrip) {
+    BasicRecover recover;
+    recover.requeue = true;
+    BasicRecover decoded;
+    std::string error;
+    ASSERT_TRUE(decodeBasicRecover(encodeBasicRecover(recover), decoded,
+                                   error))
+        << error;
+    EXPECT_TRUE(decoded.requeue);
 }
 
 TEST(BasicMethodsTest, ContentHeaderRoundTrip) {
