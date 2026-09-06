@@ -1143,4 +1143,42 @@ size_t VirtualHost::bindingCount(const std::string& exchange,
     return count;
 }
 
+std::vector<QueueInfo> VirtualHost::listQueues() const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    std::vector<QueueInfo> result;
+    result.reserve(queues_.size());
+    for (const auto& entry : queues_) {
+        const QueueSpec& spec = entry.second.spec;
+        QueueInfo info;
+        info.name = spec.name;
+        info.message_count =
+            static_cast<uint32_t>(entry.second.messages.size());
+        info.consumer_count = entry.second.consumer_count;
+        info.durable = spec.durable;
+        info.exclusive = spec.exclusive;
+        info.auto_delete = spec.auto_delete;
+        info.dead_letter_exchange = spec.dead_letter_exchange;
+        info.message_ttl_ms = spec.message_ttl_ms;
+        result.push_back(std::move(info));
+    }
+    return result;
+}
+
+std::vector<ExchangeInfo> VirtualHost::listExchanges() const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    std::vector<ExchangeInfo> result;
+    result.reserve(exchanges_.size());
+    for (const auto& entry : exchanges_) {
+        const ExchangeSpec& spec = entry.second.spec;
+        ExchangeInfo info;
+        info.name = spec.name;
+        info.type = spec.type;
+        info.durable = spec.durable;
+        info.auto_delete = spec.auto_delete;
+        info.internal = spec.internal;
+        result.push_back(std::move(info));
+    }
+    return result;
+}
+
 }  // namespace mq::broker

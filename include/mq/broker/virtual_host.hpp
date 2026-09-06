@@ -52,6 +52,25 @@ struct Message {
     std::string header_payload;
 };
 
+struct QueueInfo {
+    std::string name;
+    uint32_t message_count = 0;
+    size_t consumer_count = 0;
+    bool durable = false;
+    bool exclusive = false;
+    bool auto_delete = false;
+    std::string dead_letter_exchange;
+    int64_t message_ttl_ms = 0;
+};
+
+struct ExchangeInfo {
+    std::string name;
+    std::string type;
+    bool durable = false;
+    bool auto_delete = false;
+    bool internal = false;
+};
+
 using ConsumerDeliver =
     std::function<void(const std::string& consumer_tag,
                        const std::string& queue, const Message& message)>;
@@ -118,6 +137,8 @@ public:
     size_t bindingCount() const;
     size_t bindingCount(const std::string& exchange,
                         const std::string& queue) const;
+    std::vector<QueueInfo> listQueues() const;
+    std::vector<ExchangeInfo> listExchanges() const;
 
 private:
     struct QueueEntry {

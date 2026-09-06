@@ -6,6 +6,7 @@
 
 #include "muduo/net/Buffer.h"
 #include "muduo/net/EventLoop.h"
+#include "muduo/net/http/HttpServer.h"
 #include "muduo/net/TcpConnection.h"
 #include "muduo/net/TcpServer.h"
 
@@ -14,6 +15,8 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <string_view>
 
 namespace mq::transport {
@@ -49,7 +52,8 @@ public:
     explicit AmqpServer(uint16_t port,
                         const amqp091::ConnectionConfig& config =
                             amqp091::ConnectionConfig{},
-                        std::string data_dir = {});
+                        std::string data_dir = {},
+                        uint16_t management_port = 0);
 
     void run();
 
@@ -57,6 +61,9 @@ private:
     void onConnection(const muduo::net::TcpConnectionPtr& connection);
     void onMessage(const muduo::net::TcpConnectionPtr& connection,
                    muduo::net::Buffer* buffer, muduo::Timestamp);
+    void onHttpRequest(const muduo::net::HttpRequest& request,
+                       muduo::net::HttpResponse* response);
+    size_t connectionCount();
 
     muduo::net::EventLoop loop_;
     muduo::net::TcpServer server_;
@@ -65,6 +72,9 @@ private:
     std::map<muduo::net::TcpConnectionPtr,
              std::shared_ptr<AmqpConnectionHandler>>
         connections_;
+    mutable std::mutex connections_mutex_;
+    std::unique_ptr<muduo::net::HttpServer> http_server_;
+    uint16_t management_port_ = 0;
 };
 
 }  // namespace mq::transport

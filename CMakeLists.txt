@@ -19,6 +19,7 @@ set(MQ_THIRD_LIBRARY_DIR "${MQ_THIRD_DIR}/lib")
 
 find_library(MQ_MUDUO_NET muduo_net PATHS "${MQ_THIRD_LIBRARY_DIR}" NO_DEFAULT_PATH REQUIRED)
 find_library(MQ_MUDUO_BASE muduo_base PATHS "${MQ_THIRD_LIBRARY_DIR}" NO_DEFAULT_PATH REQUIRED)
+find_library(MQ_MUDUO_HTTP muduo_http PATHS "${MQ_THIRD_LIBRARY_DIR}" NO_DEFAULT_PATH REQUIRED)
 
 add_library(mq_compile_options INTERFACE)
 target_compile_options(mq_compile_options INTERFACE
@@ -35,6 +36,7 @@ target_include_directories(mq_muduo INTERFACE "${MQ_THIRD_INCLUDE_DIR}")
 target_link_libraries(mq_muduo INTERFACE
     "${MQ_MUDUO_NET}"
     "${MQ_MUDUO_BASE}"
+    "${MQ_MUDUO_HTTP}"
     Threads::Threads
     ZLIB::ZLIB
 )
