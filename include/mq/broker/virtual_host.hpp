@@ -5,6 +5,7 @@
 #include <deque>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <set>
 #include <string>
 #include <utility>
@@ -165,6 +166,7 @@ private:
     uint64_t next_message_id_ = 1;
     std::string data_dir_;
     void* db_ = nullptr;
+    mutable std::recursive_mutex mutex_;
 
     bool openStorage();
     void closeStorage();
@@ -184,6 +186,7 @@ private:
     void appendTombstoneLog(const std::string& queue, uint64_t message_id);
     void removeQueueLog(const std::string& queue);
     void recoverQueueMessages(const std::string& queue);
+    void compactQueueLog(const std::string& queue);
 };
 
 }  // namespace mq::broker

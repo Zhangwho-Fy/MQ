@@ -300,6 +300,20 @@ void VirtualHost::removeQueueLog(const std::string& queue) {
     std::remove(queueLogPath(data_dir_, queue).c_str());
 }
 
+void VirtualHost::compactQueueLog(const std::string& queue) {
+    const auto queue_it = queues_.find(queue);
+    if (queue_it == queues_.end() || !queue_it->second.spec.durable) return;
+    removeQueueLog(queue);
+    for (const Message& message : queue_it->second.messages) {
+        if (message.persistent) appendMessageLog(queue, message);
+    }
+    for (const auto& entry : unacked_) {
+        if (entry.second.queue == queue && entry.second.message.persistent) {
+            appendMessageLog(queue, entry.second.message);
+        }
+    }
+}
+
 void VirtualHost::recoverQueueMessages(const std::string& queue) {
     if (data_dir_.empty()) return;
     std::ifstream in(queueLogPath(data_dir_, queue), std::ios::binary);
@@ -468,6 +482,7 @@ void VirtualHost::removeBindingsForQueue(const std::string& queue) {
 }
 
 BrokerResult VirtualHost::declareExchange(const ExchangeSpec& spec) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     if (!validExchangeType(spec.type)) {
         return BrokerResult{false, kPreconditionFailed,
                             "unsupported exchange type", 0};
@@ -490,6 +505,7 @@ BrokerResult VirtualHost::declareExchange(const ExchangeSpec& spec) {
 
 BrokerResult VirtualHost::deleteExchange(const std::string& name,
                                          bool if_unused) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const auto it = exchanges_.find(name);
     if (it == exchanges_.end()) {
         return BrokerResult{false, kNotFound, "exchange not found", 0};
@@ -521,10 +537,12 @@ BrokerResult VirtualHost::deleteExchange(const std::string& name,
 }
 
 bool VirtualHost::hasExchange(const std::string& name) const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     return exchanges_.find(name) != exchanges_.end();
 }
 
 BrokerResult VirtualHost::declareQueue(const QueueSpec& spec, void* owner) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const auto it = queues_.find(spec.name);
     if (it != queues_.end()) {
         const QueueSpec& existing = it->second.spec;
@@ -561,6 +579,7 @@ BrokerResult VirtualHost::declareQueue(const QueueSpec& spec, void* owner) {
 
 BrokerResult VirtualHost::deleteQueue(const std::string& name, bool if_unused,
                                       bool if_empty) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const auto it = queues_.find(name);
     if (it == queues_.end()) {
         return BrokerResult{false, kNotFound, "queue not found", 0};
@@ -592,16 +611,19 @@ BrokerResult VirtualHost::deleteQueue(const std::string& name, bool if_unused,
 }
 
 bool VirtualHost::hasQueue(const std::string& name) const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     return queues_.find(name) != queues_.end();
 }
 
 uint32_t VirtualHost::messageCount(const std::string& name) const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const auto it = queues_.find(name);
     if (it == queues_.end()) return 0;
     return static_cast<uint32_t>(it->second.messages.size());
 }
 
 BrokerResult VirtualHost::purgeQueue(const std::string& name) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const auto it = queues_.find(name);
     if (it == queues_.end()) {
         return BrokerResult{false, kNotFound, "queue not found", 0};
@@ -618,6 +640,7 @@ BrokerResult VirtualHost::publish(const std::string& exchange,
                                   const std::string& routing_key,
                                   const Message& message,
                                   size_t* delivered) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     size_t count = 0;
 
     const auto routeToQueue = [&](const std::string& queue) {
@@ -688,6 +711,7 @@ BrokerResult VirtualHost::registerConsumer(
     const std::string& queue, const std::string& consumer_tag, void* owner,
     ConsumerDeliver deliver, bool no_ack, uint16_t prefetch_count,
     bool no_local, bool exclusive) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const auto queue_it = queues_.find(queue);
     if (queue_it == queues_.end()) {
         return BrokerResult{false, kNotFound, "queue not found", 0};
@@ -724,6 +748,7 @@ BrokerResult VirtualHost::registerConsumer(
 }
 
 void VirtualHost::unregisterConsumers(void* owner) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     for (auto it = consumers_.begin(); it != consumers_.end();) {
         const std::string queue = it->first;
         auto& entries = it->second;
@@ -761,6 +786,7 @@ void VirtualHost::unregisterConsumers(void* owner) {
 void VirtualHost::unregisterConsumer(const std::string& queue,
                                      const std::string& consumer_tag,
                                      void* owner) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const auto it = consumers_.find(queue);
     if (it == consumers_.end()) return;
     auto& entries = it->second;
@@ -790,11 +816,13 @@ void VirtualHost::unregisterConsumer(const std::string& queue,
 }
 
 size_t VirtualHost::consumerCount(const std::string& queue) const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const auto it = consumers_.find(queue);
     return it == consumers_.end() ? 0 : it->second.size();
 }
 
 BrokerResult VirtualHost::ackMessage(uint64_t message_id) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const auto it = unacked_.find(message_id);
     if (it == unacked_.end()) {
         return BrokerResult{false, kPreconditionFailed,
@@ -807,6 +835,7 @@ BrokerResult VirtualHost::ackMessage(uint64_t message_id) {
         if (queue_it != queues_.end() &&
             queue_it->second.spec.durable) {
             appendTombstoneLog(entry.queue, message_id);
+            compactQueueLog(entry.queue);
         }
     }
     if (!entry.consumer_tag.empty()) {
@@ -827,6 +856,7 @@ BrokerResult VirtualHost::ackMessage(uint64_t message_id) {
 BrokerResult VirtualHost::getMessage(const std::string& queue, bool no_ack,
                                      void* owner, Message* message,
                                      bool* has_message, uint32_t* remaining) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const auto queue_it = queues_.find(queue);
     if (queue_it == queues_.end()) {
         return BrokerResult{false, kNotFound, "queue not found", 0};
@@ -841,6 +871,7 @@ BrokerResult VirtualHost::getMessage(const std::string& queue, bool no_ack,
     if (no_ack && message->persistent &&
         queue_it->second.spec.durable) {
         appendTombstoneLog(queue, message->id);
+        compactQueueLog(queue);
     }
     if (has_message != nullptr) *has_message = true;
     if (remaining != nullptr) {
@@ -855,6 +886,7 @@ BrokerResult VirtualHost::getMessage(const std::string& queue, bool no_ack,
 }
 
 BrokerResult VirtualHost::rejectMessage(uint64_t message_id, bool requeue) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const auto it = unacked_.find(message_id);
     if (it == unacked_.end()) {
         return BrokerResult{false, kPreconditionFailed,
@@ -883,6 +915,7 @@ BrokerResult VirtualHost::rejectMessage(uint64_t message_id, bool requeue) {
             if (queue_it != queues_.end() &&
                 queue_it->second.spec.durable) {
                 appendTombstoneLog(entry.queue, message_id);
+                compactQueueLog(entry.queue);
             }
         }
         deadLetter(entry.queue, entry.message);
@@ -892,6 +925,7 @@ BrokerResult VirtualHost::rejectMessage(uint64_t message_id, bool requeue) {
 }
 
 void VirtualHost::requeueUnacked(void* owner) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     std::vector<UnackedEntry> entries;
     for (auto it = unacked_.begin(); it != unacked_.end();) {
         if (it->second.owner == owner) {
@@ -940,12 +974,14 @@ void VirtualHost::deadLetter(const std::string& source_queue,
 
 std::string VirtualHost::deadLetterExchange(
     const std::string& queue) const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const auto it = queues_.find(queue);
     return it == queues_.end() ? std::string{}
                                : it->second.spec.dead_letter_exchange;
 }
 
 int64_t VirtualHost::messageTtl(const std::string& queue) const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const auto it = queues_.find(queue);
     return it == queues_.end() ? 0 : it->second.spec.message_ttl_ms;
 }
@@ -981,6 +1017,7 @@ void VirtualHost::maybeAutoDelete(const std::string& queue) {
 }
 
 void VirtualHost::disconnectOwner(void* owner) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     unregisterConsumers(owner);
     requeueUnacked(owner);
     for (auto it = queues_.begin(); it != queues_.end();) {
@@ -1038,6 +1075,7 @@ void VirtualHost::deliverPending(const std::string& queue) {
         } else if (message.persistent &&
                    queue_it->second.spec.durable) {
             appendTombstoneLog(queue, message.id);
+            compactQueueLog(queue);
         }
         if (entry.deliver) {
             entry.deliver(entry.consumer_tag, queue, message);
@@ -1048,6 +1086,7 @@ void VirtualHost::deliverPending(const std::string& queue) {
 BrokerResult VirtualHost::bind(const std::string& exchange,
                                const std::string& queue,
                                const std::string& routing_key) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     if (!hasExchange(exchange)) {
         return BrokerResult{false, kNotFound, "exchange not found", 0};
     }
@@ -1069,6 +1108,7 @@ BrokerResult VirtualHost::bind(const std::string& exchange,
 BrokerResult VirtualHost::unbind(const std::string& exchange,
                                  const std::string& queue,
                                  const std::string& routing_key) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const auto it = queues_.find(queue);
     if (it == queues_.end()) {
         return BrokerResult{false, kNotFound, "queue not found", 0};
@@ -1083,6 +1123,7 @@ BrokerResult VirtualHost::unbind(const std::string& exchange,
 }
 
 size_t VirtualHost::bindingCount() const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     size_t count = 0;
     for (const auto& queue_entry : queues_) {
         count += queue_entry.second.bindings.size();
@@ -1092,6 +1133,7 @@ size_t VirtualHost::bindingCount() const {
 
 size_t VirtualHost::bindingCount(const std::string& exchange,
                                  const std::string& queue) const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const auto it = queues_.find(queue);
     if (it == queues_.end()) return 0;
     size_t count = 0;

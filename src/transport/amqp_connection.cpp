@@ -79,6 +79,18 @@ void AmqpConnectionHandler::onHeartbeat() {
 }
 
 void AmqpConnectionHandler::send(const std::string& bytes) {
+    if (!connection_) return;
+    muduo::net::EventLoop* loop = connection_->getLoop();
+    if (loop->isInLoopThread()) {
+        sendInLoop(bytes);
+    } else {
+        loop->runInLoop([weak = weak_from_this(), bytes]() {
+            if (const auto self = weak.lock()) self->sendInLoop(bytes);
+        });
+    }
+}
+
+void AmqpConnectionHandler::sendInLoop(const std::string& bytes) {
     if (connection_ && connection_->connected()) {
         connection_->send(bytes.data(), static_cast<int>(bytes.size()));
     }
@@ -90,6 +102,7 @@ AmqpServer::AmqpServer(uint16_t port, const amqp091::ConnectionConfig& config,
       config_(config),
       virtual_host_(std::make_shared<broker::VirtualHost>(
           std::move(data_dir))) {
+    server_.setThreadNum(4);
     server_.setConnectionCallback(
         std::bind(&AmqpServer::onConnection, this, std::placeholders::_1));
     server_.setMessageCallback(std::bind(

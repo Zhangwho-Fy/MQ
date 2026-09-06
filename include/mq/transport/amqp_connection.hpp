@@ -32,6 +32,7 @@ public:
 
 private:
     void send(const std::string& bytes);
+    void sendInLoop(const std::string& bytes);
     void onHeartbeat();
 
     muduo::net::TcpConnectionPtr connection_;
