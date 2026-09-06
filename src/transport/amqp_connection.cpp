@@ -4,6 +4,7 @@
 
 #include "muduo/net/EventLoop.h"
 
+#include <chrono>
 #include <utility>
 
 namespace mq::transport {
@@ -15,13 +16,22 @@ AmqpConnectionHandler::AmqpConnectionHandler(
     : connection_(connection),
       session_(config,
                [this](const std::string& bytes) { send(bytes); },
-               std::move(virtual_host)) {}
+               std::move(virtual_host)),
+      last_receive_(std::chrono::steady_clock::now()),
+      heartbeat_interval_(config.heartbeat) {}
+
+AmqpConnectionHandler::~AmqpConnectionHandler() {
+    if (heartbeat_started_ && connection_) {
+        connection_->getLoop()->cancel(heartbeat_timer_);
+    }
+}
 
 void AmqpConnectionHandler::onMessage(muduo::net::Buffer* buffer) {
     if (closing_) {
         buffer->retrieveAll();
         return;
     }
+    last_receive_ = std::chrono::steady_clock::now();
     const std::string_view data(buffer->peek(), buffer->readableBytes());
     const amqp091::SessionResult result = session_.feed(data);
     buffer->retrieveAll();
@@ -31,6 +41,41 @@ void AmqpConnectionHandler::onMessage(muduo::net::Buffer* buffer) {
         closing_ = true;
         connection_->shutdown();
     }
+}
+
+void AmqpConnectionHandler::startHeartbeat() {
+    if (heartbeat_started_ || heartbeat_interval_ == 0 || !connection_) return;
+    muduo::net::EventLoop* loop = connection_->getLoop();
+    if (loop == nullptr) return;
+    heartbeat_timer_ = loop->runEvery(
+        static_cast<double>(heartbeat_interval_),
+        [weak = weak_from_this()]() {
+            if (const auto self = weak.lock()) self->onHeartbeat();
+        });
+    heartbeat_started_ = true;
+}
+
+void AmqpConnectionHandler::onHeartbeat() {
+    if (closing_ || !connection_ || !connection_->connected()) return;
+    const auto now = std::chrono::steady_clock::now();
+    const auto idle_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - last_receive_)
+            .count();
+    if (idle_ms > static_cast<int64_t>(heartbeat_interval_) * 2000) {
+        ELOG("AMQP heartbeat timeout, closing connection: %s",
+             connection_->peerAddress().toIpPort().c_str());
+        closing_ = true;
+        connection_->shutdown();
+        return;
+    }
+    const std::string heartbeat =
+        mq::amqp091::FrameEncoder::encode(
+            mq::amqp091::Frame{
+                mq::amqp091::kFrameHeartbeat, 0, std::string{}},
+            0);
+    connection_->send(heartbeat.data(),
+                      static_cast<int>(heartbeat.size()));
 }
 
 void AmqpConnectionHandler::send(const std::string& bytes) {
@@ -61,8 +106,10 @@ void AmqpServer::onConnection(
     if (connection->connected()) {
         ILOG("AMQP connection established: %s",
              connection->peerAddress().toIpPort().c_str());
-        connections_[connection] = std::make_unique<AmqpConnectionHandler>(
+        auto handler = std::make_shared<AmqpConnectionHandler>(
             config_, connection, virtual_host_);
+        handler->startHeartbeat();
+        connections_[connection] = std::move(handler);
     } else {
         connections_.erase(connection);
     }

@@ -10,6 +10,7 @@
 #include "muduo/net/TcpServer.h"
 
 #include <cstdint>
+#include <chrono>
 #include <functional>
 #include <map>
 #include <memory>
@@ -17,21 +18,29 @@
 
 namespace mq::transport {
 
-class AmqpConnectionHandler {
+class AmqpConnectionHandler
+    : public std::enable_shared_from_this<AmqpConnectionHandler> {
 public:
     AmqpConnectionHandler(const amqp091::ConnectionConfig& config,
                           const muduo::net::TcpConnectionPtr& connection,
                           std::shared_ptr<broker::VirtualHost> virtual_host);
+    ~AmqpConnectionHandler();
 
     void onMessage(muduo::net::Buffer* buffer);
+    void startHeartbeat();
     const muduo::net::TcpConnectionPtr& connection() const { return connection_; }
 
 private:
     void send(const std::string& bytes);
+    void onHeartbeat();
 
     muduo::net::TcpConnectionPtr connection_;
     amqp091::ConnectionSession session_;
     bool closing_ = false;
+    std::chrono::steady_clock::time_point last_receive_;
+    uint16_t heartbeat_interval_ = 0;
+    bool heartbeat_started_ = false;
+    muduo::net::TimerId heartbeat_timer_;
 };
 
 class AmqpServer {
@@ -52,7 +61,7 @@ private:
     amqp091::ConnectionConfig config_;
     std::shared_ptr<broker::VirtualHost> virtual_host_;
     std::map<muduo::net::TcpConnectionPtr,
-             std::unique_ptr<AmqpConnectionHandler>>
+             std::shared_ptr<AmqpConnectionHandler>>
         connections_;
 };
 
