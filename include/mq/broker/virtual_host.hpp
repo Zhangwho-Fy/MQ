@@ -64,6 +64,9 @@ public:
     static constexpr uint16_t kResourceLocked = 405;
     static constexpr uint16_t kPreconditionFailed = 406;
 
+    explicit VirtualHost(std::string data_dir = {});
+    ~VirtualHost();
+
     BrokerResult declareExchange(const ExchangeSpec& spec);
     BrokerResult deleteExchange(const std::string& name, bool if_unused);
     bool hasExchange(const std::string& name) const;
@@ -159,6 +162,23 @@ private:
     std::map<std::string, size_t> consumer_round_robin_;
     std::map<uint64_t, UnackedEntry> unacked_;
     uint64_t next_message_id_ = 1;
+    std::string data_dir_;
+    void* db_ = nullptr;
+
+    bool openStorage();
+    void closeStorage();
+    void recoverStorage();
+    void persistExchange(const ExchangeSpec& spec);
+    void removeExchangeRow(const std::string& name);
+    void persistQueue(const QueueSpec& spec);
+    void removeQueueRow(const std::string& name);
+    void persistBinding(const std::string& exchange, const std::string& queue,
+                        const std::string& routing_key);
+    void removeBindingRow(const std::string& exchange,
+                          const std::string& queue,
+                          const std::string& routing_key);
+    void removeBindingsForExchange(const std::string& exchange);
+    void removeBindingsForQueue(const std::string& queue);
 };
 
 }  // namespace mq::broker

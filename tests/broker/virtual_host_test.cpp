@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <thread>
 
 namespace mq::broker {
@@ -477,6 +478,41 @@ TEST(VirtualHostTest, DisconnectRemovesExclusiveQueue) {
     ASSERT_TRUE(host.publish("", "q1", Message{"a", false}).ok);
     host.disconnectOwner(&owner);
     EXPECT_FALSE(host.hasQueue("q1"));
+}
+
+TEST(VirtualHostTest, PersistsMetadataAcrossRestart) {
+    char template_dir[] = "/tmp/mq-meta-XXXXXX";
+    char* created = mkdtemp(template_dir);
+    ASSERT_NE(created, nullptr);
+    const std::string dir = created;
+
+    {
+        VirtualHost host(dir);
+        ExchangeSpec exchange;
+        exchange.name = "ex";
+        exchange.type = "direct";
+        exchange.durable = true;
+        ASSERT_TRUE(host.declareExchange(exchange).ok);
+
+        QueueSpec queue;
+        queue.name = "q1";
+        queue.durable = true;
+        queue.dead_letter_exchange = "dlx";
+        ASSERT_TRUE(host.declareQueue(queue).ok);
+        ASSERT_TRUE(host.bind("ex", "q1", "key").ok);
+    }
+
+    {
+        VirtualHost host(dir);
+        ASSERT_TRUE(host.hasExchange("ex"));
+        ASSERT_TRUE(host.hasQueue("q1"));
+        EXPECT_EQ(host.bindingCount("ex", "q1"), 1U);
+        EXPECT_EQ(host.bindingCount("", "q1"), 1U);  // default binding
+        EXPECT_EQ(host.deadLetterExchange("q1"), "dlx");
+    }
+
+    std::remove((dir + "/meta.db").c_str());
+    std::remove(created);
 }
 
 }  // namespace mq::broker

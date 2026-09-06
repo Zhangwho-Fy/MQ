@@ -84,10 +84,12 @@ void AmqpConnectionHandler::send(const std::string& bytes) {
     }
 }
 
-AmqpServer::AmqpServer(uint16_t port, const amqp091::ConnectionConfig& config)
+AmqpServer::AmqpServer(uint16_t port, const amqp091::ConnectionConfig& config,
+                       std::string data_dir)
     : server_(&loop_, muduo::net::InetAddress(port), "AmqpServer"),
       config_(config),
-      virtual_host_(std::make_shared<broker::VirtualHost>()) {
+      virtual_host_(std::make_shared<broker::VirtualHost>(
+          std::move(data_dir))) {
     server_.setConnectionCallback(
         std::bind(&AmqpServer::onConnection, this, std::placeholders::_1));
     server_.setMessageCallback(std::bind(

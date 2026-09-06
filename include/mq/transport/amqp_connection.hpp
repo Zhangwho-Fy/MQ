@@ -47,7 +47,8 @@ class AmqpServer {
 public:
     explicit AmqpServer(uint16_t port,
                         const amqp091::ConnectionConfig& config =
-                            amqp091::ConnectionConfig{});
+                            amqp091::ConnectionConfig{},
+                        std::string data_dir = {});
 
     void run();
 

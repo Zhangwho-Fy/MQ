@@ -1,8 +1,13 @@
 #include "mq/broker/virtual_host.hpp"
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
+#include <cstring>
+#include <sys/stat.h>
 #include <vector>
+
+#include <sqlite3.h>
 
 namespace mq::broker {
 
@@ -66,7 +71,226 @@ bool topicMatches(const std::string& binding_key,
     return bkeys.empty() ? false : dp[bkeys.size()];
 }
 
+std::string sqlEscape(const std::string& value) {
+    std::string out;
+    out.reserve(value.size());
+    for (char ch : value) {
+        if (ch == '\'') out += "''";
+        else out += ch;
+    }
+    return out;
+}
+
+bool sqlExec(sqlite3* db, const std::string& sql) {
+    char* error = nullptr;
+    const int rc = sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &error);
+    if (rc != SQLITE_OK) {
+        sqlite3_free(error);
+        return false;
+    }
+    return true;
+}
+
+void ensureDirectory(const std::string& path) {
+    if (path.empty()) return;
+    size_t pos = 0;
+    while ((pos = path.find('/', pos)) != std::string::npos) {
+        const std::string sub = path.substr(0, pos);
+        if (!sub.empty()) ::mkdir(sub.c_str(), 0755);
+        ++pos;
+    }
+    if (!path.empty()) ::mkdir(path.c_str(), 0755);
+}
+
 }  // namespace
+
+VirtualHost::VirtualHost(std::string data_dir)
+    : data_dir_(std::move(data_dir)) {
+    openStorage();
+}
+
+VirtualHost::~VirtualHost() {
+    closeStorage();
+}
+
+bool VirtualHost::openStorage() {
+    if (data_dir_.empty()) return false;
+    ensureDirectory(data_dir_);
+    const std::string dbfile = data_dir_ + "/meta.db";
+    sqlite3* db = nullptr;
+    if (sqlite3_open_v2(dbfile.c_str(), &db,
+                        SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
+                        nullptr) != SQLITE_OK) {
+        sqlite3_close(db);
+        return false;
+    }
+    db_ = db;
+    const bool ok =
+        sqlExec(db, "create table if not exists exchanges("
+                    "name text primary key, type text, durable int, "
+                    "auto_delete int, internal int);") &&
+        sqlExec(db, "create table if not exists queues("
+                    "name text primary key, durable int, exclusive int, "
+                    "auto_delete int, dead_letter_exchange text, "
+                    "dead_letter_routing_key text, message_ttl_ms int);") &&
+        sqlExec(db, "create table if not exists bindings("
+                    "exchange text, queue text, routing_key text, "
+                    "primary key(exchange, queue, routing_key));");
+    if (!ok) {
+        closeStorage();
+        return false;
+    }
+    recoverStorage();
+    return true;
+}
+
+void VirtualHost::closeStorage() {
+    if (db_ != nullptr) {
+        sqlite3_close(static_cast<sqlite3*>(db_));
+        db_ = nullptr;
+    }
+}
+
+void VirtualHost::recoverStorage() {
+    sqlite3* db = static_cast<sqlite3*>(db_);
+    if (db == nullptr) return;
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(
+            db, "select name,type,durable,auto_delete,internal "
+                "from exchanges;",
+            -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            ExchangeSpec spec;
+            spec.name = reinterpret_cast<const char*>(
+                sqlite3_column_text(stmt, 0));
+            spec.type = reinterpret_cast<const char*>(
+                sqlite3_column_text(stmt, 1));
+            spec.durable = sqlite3_column_int(stmt, 2) != 0;
+            spec.auto_delete = sqlite3_column_int(stmt, 3) != 0;
+            spec.internal = sqlite3_column_int(stmt, 4) != 0;
+            ExchangeEntry entry;
+            entry.spec = spec;
+            exchanges_[spec.name] = std::move(entry);
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    if (sqlite3_prepare_v2(
+            db, "select name,durable,exclusive,auto_delete,"
+                "dead_letter_exchange,dead_letter_routing_key,message_ttl_ms "
+                "from queues;",
+            -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            QueueSpec spec;
+            spec.name = reinterpret_cast<const char*>(
+                sqlite3_column_text(stmt, 0));
+            spec.durable = sqlite3_column_int(stmt, 1) != 0;
+            spec.exclusive = sqlite3_column_int(stmt, 2) != 0;
+            spec.auto_delete = sqlite3_column_int(stmt, 3) != 0;
+            const char* dlx = reinterpret_cast<const char*>(
+                sqlite3_column_text(stmt, 4));
+            const char* dlx_rk = reinterpret_cast<const char*>(
+                sqlite3_column_text(stmt, 5));
+            if (dlx != nullptr) spec.dead_letter_exchange = dlx;
+            if (dlx_rk != nullptr) spec.dead_letter_routing_key = dlx_rk;
+            spec.message_ttl_ms = sqlite3_column_int64(stmt, 6);
+            QueueEntry entry;
+            entry.spec = spec;
+            entry.bindings.insert({"", spec.name});
+            queues_[spec.name] = std::move(entry);
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    if (sqlite3_prepare_v2(
+            db, "select exchange,queue,routing_key from bindings;",
+            -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const std::string exchange = reinterpret_cast<const char*>(
+                sqlite3_column_text(stmt, 0));
+            const std::string queue = reinterpret_cast<const char*>(
+                sqlite3_column_text(stmt, 1));
+            const std::string key = reinterpret_cast<const char*>(
+                sqlite3_column_text(stmt, 2));
+            const auto queue_it = queues_.find(queue);
+            if (queue_it != queues_.end()) {
+                queue_it->second.bindings.insert({exchange, key});
+            }
+        }
+        sqlite3_finalize(stmt);
+    }
+}
+
+void VirtualHost::persistExchange(const ExchangeSpec& spec) {
+    if (db_ == nullptr) return;
+    const std::string sql =
+        "insert or replace into exchanges values('" + sqlEscape(spec.name) +
+        "','" + sqlEscape(spec.type) + "'," +
+        std::to_string(spec.durable ? 1 : 0) + "," +
+        std::to_string(spec.auto_delete ? 1 : 0) + "," +
+        std::to_string(spec.internal ? 1 : 0) + ");";
+    sqlExec(static_cast<sqlite3*>(db_), sql);
+}
+
+void VirtualHost::removeExchangeRow(const std::string& name) {
+    if (db_ == nullptr) return;
+    sqlExec(static_cast<sqlite3*>(db_),
+            "delete from exchanges where name='" + sqlEscape(name) + "';");
+}
+
+void VirtualHost::persistQueue(const QueueSpec& spec) {
+    if (db_ == nullptr) return;
+    const std::string sql =
+        "insert or replace into queues values('" + sqlEscape(spec.name) +
+        "'," + std::to_string(spec.durable ? 1 : 0) + "," +
+        std::to_string(spec.exclusive ? 1 : 0) + "," +
+        std::to_string(spec.auto_delete ? 1 : 0) + ",'" +
+        sqlEscape(spec.dead_letter_exchange) + "','" +
+        sqlEscape(spec.dead_letter_routing_key) + "'," +
+        std::to_string(spec.message_ttl_ms) + ");";
+    sqlExec(static_cast<sqlite3*>(db_), sql);
+}
+
+void VirtualHost::removeQueueRow(const std::string& name) {
+    if (db_ == nullptr) return;
+    sqlExec(static_cast<sqlite3*>(db_),
+            "delete from queues where name='" + sqlEscape(name) + "';");
+}
+
+void VirtualHost::persistBinding(const std::string& exchange,
+                                 const std::string& queue,
+                                 const std::string& routing_key) {
+    if (db_ == nullptr) return;
+    const std::string sql =
+        "insert or ignore into bindings values('" + sqlEscape(exchange) +
+        "','" + sqlEscape(queue) + "','" + sqlEscape(routing_key) + "');";
+    sqlExec(static_cast<sqlite3*>(db_), sql);
+}
+
+void VirtualHost::removeBindingRow(const std::string& exchange,
+                                   const std::string& queue,
+                                   const std::string& routing_key) {
+    if (db_ == nullptr) return;
+    const std::string sql =
+        "delete from bindings where exchange='" + sqlEscape(exchange) +
+        "' and queue='" + sqlEscape(queue) + "' and routing_key='" +
+        sqlEscape(routing_key) + "';";
+    sqlExec(static_cast<sqlite3*>(db_), sql);
+}
+
+void VirtualHost::removeBindingsForExchange(const std::string& exchange) {
+    if (db_ == nullptr) return;
+    sqlExec(static_cast<sqlite3*>(db_),
+            "delete from bindings where exchange='" + sqlEscape(exchange) +
+                "';");
+}
+
+void VirtualHost::removeBindingsForQueue(const std::string& queue) {
+    if (db_ == nullptr) return;
+    sqlExec(static_cast<sqlite3*>(db_),
+            "delete from bindings where queue='" + sqlEscape(queue) + "';");
+}
 
 BrokerResult VirtualHost::declareExchange(const ExchangeSpec& spec) {
     if (!validExchangeType(spec.type)) {
@@ -85,6 +309,7 @@ BrokerResult VirtualHost::declareExchange(const ExchangeSpec& spec) {
         return BrokerResult{};
     }
     exchanges_[spec.name] = ExchangeEntry{spec};
+    if (spec.durable) persistExchange(spec);
     return BrokerResult{};
 }
 
@@ -105,6 +330,8 @@ BrokerResult VirtualHost::deleteExchange(const std::string& name,
         }
     }
     exchanges_.erase(it);
+    removeExchangeRow(name);
+    removeBindingsForExchange(name);
     for (auto& queue_entry : queues_) {
         auto& bindings = queue_entry.second.bindings;
         for (auto bit = bindings.begin(); bit != bindings.end();) {
@@ -150,6 +377,10 @@ BrokerResult VirtualHost::declareQueue(const QueueSpec& spec, void* owner) {
     // The default exchange is the empty-name direct exchange.
     entry.bindings.insert({"", spec.name});
     queues_[spec.name] = std::move(entry);
+    if (spec.durable) {
+        persistQueue(spec);
+        persistBinding("", spec.name, spec.name);
+    }
     return BrokerResult{};
 }
 
@@ -179,6 +410,8 @@ BrokerResult VirtualHost::deleteQueue(const std::string& name, bool if_unused,
     consumers_.erase(name);
     consumer_round_robin_.erase(name);
     queues_.erase(it);
+    removeQueueRow(name);
+    removeBindingsForQueue(name);
     return BrokerResult{true, 0, "", removed};
 }
 
@@ -622,6 +855,13 @@ BrokerResult VirtualHost::bind(const std::string& exchange,
         return BrokerResult{false, kNotFound, "queue not found", 0};
     }
     it->second.bindings.insert({exchange, routing_key});
+    if (hasExchange(exchange) && hasQueue(queue)) {
+        const bool durable_both =
+            exchanges_[exchange].spec.durable && queues_[queue].spec.durable;
+        if (durable_both) {
+            persistBinding(exchange, queue, routing_key);
+        }
+    }
     return BrokerResult{};
 }
 
@@ -637,6 +877,7 @@ BrokerResult VirtualHost::unbind(const std::string& exchange,
         return BrokerResult{false, kNotFound, "binding not found", 0};
     }
     it->second.bindings.erase(binding);
+    removeBindingRow(exchange, queue, routing_key);
     return BrokerResult{};
 }
 

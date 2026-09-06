@@ -11,6 +11,7 @@ option(MQ_BUILD_LEGACY "Build the legacy Protobuf broker under legacy/" OFF)
 
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
+find_package(SQLite3 REQUIRED)
 find_path(MQ_BOOST_INCLUDE_DIR boost/operators.hpp REQUIRED)
 
 set(MQ_THIRD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mqthird")
@@ -69,6 +70,7 @@ target_compile_features(mq_broker PUBLIC cxx_std_17)
 target_compile_options(mq_broker PRIVATE
     $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic>
 )
+target_link_libraries(mq_broker PUBLIC SQLite::SQLite3)
 
 target_link_libraries(amqp091_protocol PUBLIC mq_broker)
 
