@@ -45,6 +45,13 @@ cmake --build build -j4
 ./build/amqp_server -p 5672 --data ./data
 ```
 
+启用管理 HTTP API：
+
+```bash
+./build/amqp_server -p 5672 --http-port 15672 --data ./data
+curl http://127.0.0.1:15672/api/overview
+```
+
 pika 互操作冒烟：
 
 ```bash
@@ -67,6 +74,8 @@ tools/         AMQP raw/pika 冒烟客户端
 common/        公共日志
 mqthird/       muduo 静态库
 ```
+
+API 文档见 `docs/openapi.yaml`，可用浏览器打开 `docs/swagger-ui.html` 预览。
 
 ## 说明
 

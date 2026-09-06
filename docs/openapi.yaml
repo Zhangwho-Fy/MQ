@@ -1,0 +1,192 @@
+openapi: 3.0.3
+info:
+  title: MQ Management HTTP API
+  description: |
+    轻量 AMQP 0-9-1 服务器的管理与监控接口。
+
+    启动时通过 `--http-port` 开启管理服务，例如：
+
+    ```bash
+    ./build/amqp_server -p 5672 --http-port 15672 --data ./data
+    ```
+
+    接口风格参考 RabbitMQ Management HTTP API。
+  version: 0.1.0
+
+servers:
+  - url: http://localhost:15672
+    description: 本地管理服务
+
+tags:
+  - name: Overview
+    description: 服务器概况
+  - name: Exchanges
+    description: 交换机管理
+  - name: Queues
+    description: 队列管理与监控
+
+paths:
+  /api/overview:
+    get:
+      tags: [Overview]
+      operationId: getOverview
+      summary: 获取服务器概况
+      description: 返回当前连接数、队列数和交换机数。
+      responses:
+        "200":
+          description: 概况数据
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Overview"
+
+  /api/exchanges:
+    get:
+      tags: [Exchanges]
+      operationId: listExchanges
+      summary: 获取交换机列表
+      responses:
+        "200":
+          description: 交换机列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExchangeInfo"
+
+  /api/queues:
+    get:
+      tags: [Queues]
+      operationId: listQueues
+      summary: 获取队列列表
+      description: 返回每个队列的消息数、消费者数和配置信息。
+      responses:
+        "200":
+          description: 队列列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/QueueInfo"
+
+  /api/queues/{queue}:
+    parameters:
+      - name: queue
+        in: path
+        required: true
+        schema:
+          type: string
+        description: 队列名称
+    get:
+      tags: [Queues]
+      operationId: getQueue
+      summary: 获取单个队列详情
+      responses:
+        "200":
+          description: 队列详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueueInfo"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Queues]
+      operationId: deleteQueue
+      summary: 删除队列
+      responses:
+        "200":
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                    example: true
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  responses:
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Overview:
+      type: object
+      properties:
+        connections:
+          type: integer
+          description: 当前 AMQP 连接数
+          example: 0
+        queues:
+          type: integer
+          description: 队列总数
+          example: 1
+        exchanges:
+          type: integer
+          description: 交换机总数
+          example: 1
+
+    ExchangeInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          description: 交换机名称
+          example: pika_logs
+        type:
+          type: string
+          enum: [direct, fanout, topic, headers]
+          description: 交换机类型
+          example: fanout
+        durable:
+          type: boolean
+          description: 是否持久交换机
+        auto_delete:
+          type: boolean
+        internal:
+          type: boolean
+
+    QueueInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          description: 队列名称
+          example: pika_q
+        message_count:
+          type: integer
+          description: 当前可投递消息数
+        consumer_count:
+          type: integer
+          description: 当前消费者数
+        durable:
+          type: boolean
+        exclusive:
+          type: boolean
+        auto_delete:
+          type: boolean
+        dead_letter_exchange:
+          type: string
+          description: 死信交换机，空字符串表示未配置
+          example: dlx
+        message_ttl_ms:
+          type: integer
+          description: 队列级 TTL，0 表示不限制
+          example: 60000
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: queue not found
