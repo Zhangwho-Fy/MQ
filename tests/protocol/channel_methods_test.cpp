@@ -8,7 +8,7 @@ TEST(ChannelMethodsTest, OpenRoundTrip) {
     ChannelOpen open;
     std::string error;
     EXPECT_TRUE(decodeChannelOpen(encodeChannelOpen(open), error)) << error;
-    EXPECT_EQ(encodeChannelOpenOk(), std::string());
+    EXPECT_EQ(encodeChannelOpenOk(), std::string("\x00\x00\x00\x00", 4));
 }
 
 TEST(ChannelMethodsTest, FlowUsesHighBit) {

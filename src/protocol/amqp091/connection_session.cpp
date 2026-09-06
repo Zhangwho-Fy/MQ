@@ -949,7 +949,8 @@ SessionResult ConnectionSession::handleConnectionMethod(
         }
         const std::string open_ok = encodeMethodHeader(
             kConnectionClassId,
-            static_cast<uint16_t>(ConnectionMethodId::OpenOk), "");
+            static_cast<uint16_t>(ConnectionMethodId::OpenOk),
+            encodeConnectionOpenOk());
         sendFrame(kFrameMethod, 0, open_ok);
         state_ = ConnectionState::kReady;
         return SessionResult{};

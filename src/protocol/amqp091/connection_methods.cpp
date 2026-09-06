@@ -161,6 +161,12 @@ bool decodeConnectionOpen(std::string_view arguments, ConnectionOpen& open,
     return true;
 }
 
+std::string encodeConnectionOpenOk() {
+    WireWriter writer;
+    writeShortString(writer, "");  // reserved/known-hosts shortstr
+    return writer.takeBytes();
+}
+
 std::string encodeConnectionClose(const ConnectionClose& close) {
     WireWriter writer;
     writer.writeU16(close.reply_code);

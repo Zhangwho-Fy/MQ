@@ -83,6 +83,8 @@ std::string encodeConnectionOpen(const ConnectionOpen& open);
 bool decodeConnectionOpen(std::string_view arguments, ConnectionOpen& open,
                           std::string& error);
 
+std::string encodeConnectionOpenOk();
+
 std::string encodeConnectionClose(const ConnectionClose& close);
 bool decodeConnectionClose(std::string_view arguments, ConnectionClose& close,
                            std::string& error);

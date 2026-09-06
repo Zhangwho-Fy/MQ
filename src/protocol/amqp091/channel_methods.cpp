@@ -48,16 +48,20 @@ std::string encodeChannelOpen(const ChannelOpen&) {
 }
 
 bool decodeChannelOpen(std::string_view arguments, std::string& error) {
-    // reserved-1 must currently be absent/empty.
-    if (!arguments.empty()) {
-        error = "unexpected channel.open arguments";
+    if (arguments.empty()) return true;
+    WireReader reader(arguments);
+    std::string reserved;
+    if (!readShortString(reader, reserved)) {
+        error = "invalid channel.open reserved field";
         return false;
     }
     return true;
 }
 
 std::string encodeChannelOpenOk() {
-    return {};
+    WireWriter writer;
+    writer.writeU32(0);  // reserved channel-id longstr
+    return writer.takeBytes();
 }
 
 std::string encodeChannelFlow(const ChannelFlow& flow) {
