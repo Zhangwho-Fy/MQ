@@ -46,6 +46,8 @@ struct Message {
     uint64_t id = 0;
     uint32_t dead_letter_count = 0;
     uint64_t expire_at_ms = 0;
+    uint32_t ttl_ms = 0;
+    void* publisher_owner = nullptr;
 };
 
 using ConsumerDeliver =
@@ -58,6 +60,8 @@ using ConsumerDeliver =
 class VirtualHost {
 public:
     static constexpr uint16_t kNotFound = 404;
+    static constexpr uint16_t kAccessRefused = 403;
+    static constexpr uint16_t kResourceLocked = 405;
     static constexpr uint16_t kPreconditionFailed = 406;
 
     BrokerResult declareExchange(const ExchangeSpec& spec);
@@ -65,7 +69,8 @@ public:
     bool hasExchange(const std::string& name) const;
     size_t exchangeCount() const { return exchanges_.size(); }
 
-    BrokerResult declareQueue(const QueueSpec& spec);
+    BrokerResult declareQueue(const QueueSpec& spec,
+                              void* owner = nullptr);
     BrokerResult deleteQueue(const std::string& name, bool if_unused,
                              bool if_empty);
     BrokerResult purgeQueue(const std::string& name);
@@ -77,7 +82,10 @@ public:
                                   const std::string& consumer_tag,
                                   void* owner,
                                   ConsumerDeliver deliver,
-                                  bool no_ack = false);
+                                  bool no_ack = false,
+                                  uint16_t prefetch_count = 0,
+                                  bool no_local = false,
+                                  bool exclusive = false);
     void unregisterConsumers(void* owner);
     void unregisterConsumer(const std::string& queue,
                             const std::string& consumer_tag, void* owner);
@@ -88,6 +96,7 @@ public:
                             void* owner, Message* message, bool* has_message,
                             uint32_t* remaining);
     void requeueUnacked(void* owner);
+    void disconnectOwner(void* owner);
     size_t unackedCount() const { return unacked_.size(); }
     std::string deadLetterExchange(const std::string& queue) const;
     int64_t messageTtl(const std::string& queue) const;
@@ -110,24 +119,35 @@ private:
         QueueSpec spec;
         std::deque<Message> messages;
         std::set<std::pair<std::string, std::string>> bindings;
+        void* exclusive_owner = nullptr;
+        size_t consumer_count = 0;
+        bool ever_had_consumer = false;
     };
 
     struct ConsumerEntry {
         std::string consumer_tag;
         void* owner = nullptr;
         bool no_ack = false;
+        bool no_local = false;
+        bool exclusive = false;
         ConsumerDeliver deliver;
+        uint16_t prefetch_count = 0;
+        size_t unacked_count = 0;
     };
 
     struct UnackedEntry {
         std::string queue;
         Message message;
         void* owner = nullptr;
+        std::string consumer_tag;
     };
 
     void deliverPending(const std::string& queue);
     void deadLetter(const std::string& source_queue, const Message& message);
     void expireMessages(const std::string& queue);
+    void decrementConsumerUnacked(const std::string& queue,
+                                  const std::string& consumer_tag);
+    void maybeAutoDelete(const std::string& queue);
 
     struct ExchangeEntry {
         ExchangeSpec spec;

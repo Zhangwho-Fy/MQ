@@ -126,6 +126,20 @@ TEST(BasicMethodsTest, GetRoundTrip) {
     EXPECT_EQ(decoded_ok.message_count, 9U);
 }
 
+TEST(BasicMethodsTest, QosRoundTrip) {
+    BasicQos qos;
+    qos.prefetch_size = 1024;
+    qos.prefetch_count = 10;
+    qos.global = true;
+    BasicQos decoded;
+    std::string error;
+    ASSERT_TRUE(decodeBasicQos(encodeBasicQos(qos), decoded, error))
+        << error;
+    EXPECT_EQ(decoded.prefetch_size, 1024U);
+    EXPECT_EQ(decoded.prefetch_count, 10U);
+    EXPECT_TRUE(decoded.global);
+}
+
 TEST(BasicMethodsTest, ContentHeaderRoundTrip) {
     const uint64_t body_size = 5;
     const std::string payload = encodeContentHeader(body_size);
@@ -153,6 +167,23 @@ TEST(BasicMethodsTest, ContentHeaderExtractsPersistentDeliveryMode) {
     ASSERT_TRUE(decodeContentHeader(payload, info, error)) << error;
     EXPECT_EQ(info.body_size, 3U);
     EXPECT_TRUE(info.persistent);
+}
+
+TEST(BasicMethodsTest, ContentHeaderExtractsExpiration) {
+    const uint16_t expiration_flag = 0x8000U >> 7;
+    std::string payload;
+    payload.append("\x00\x3c", 2);  // class-id 60
+    payload.append("\x00\x00", 2);  // weight
+    payload.append("\x00\x00\x00\x00\x00\x00\x00\x03", 8);  // body size 3
+    payload.push_back(static_cast<char>((expiration_flag >> 8) & 0xff));
+    payload.push_back(static_cast<char>(expiration_flag & 0xff));
+    payload.push_back(2);
+    payload.append("30", 2);
+
+    ContentHeaderInfo info;
+    std::string error;
+    ASSERT_TRUE(decodeContentHeader(payload, info, error)) << error;
+    EXPECT_EQ(info.expiration, "30");
 }
 
 }  // namespace mq::amqp091

@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <thread>
 #include <vector>
 
 namespace mq::amqp091 {
@@ -20,6 +22,22 @@ std::string encodeMethodFrame(uint16_t class_id, uint16_t method_id,
 std::string encodeRawFrame(uint8_t type, uint16_t channel,
                            const std::string& payload) {
     return FrameEncoder::encode(Frame{type, channel, payload}, 131072);
+}
+
+std::string encodeExpirationContentHeader(uint64_t body_size,
+                                          const std::string& expiration) {
+    std::string payload;
+    payload.append("\x00\x3c\x00\x00", 4);  // class-id 60, weight 0
+    for (int shift = 56; shift >= 0; shift -= 8) {
+        payload.push_back(static_cast<char>(
+            (body_size >> shift) & 0xff));
+    }
+    const uint16_t expiration_flag = 0x8000U >> 7;
+    payload.push_back(static_cast<char>((expiration_flag >> 8) & 0xff));
+    payload.push_back(static_cast<char>(expiration_flag & 0xff));
+    payload.push_back(static_cast<char>(expiration.size()));
+    payload.append(expiration);
+    return payload;
 }
 
 bool decodeCapturedMethod(const std::string& frame_bytes, MethodHeader& header,
@@ -775,6 +793,180 @@ TEST(ConnectionSessionTest, GetReturnsMessageAndEmpty) {
         << error;
     EXPECT_EQ(header.method_id,
               static_cast<uint16_t>(BasicMethodId::GetEmpty));
+}
+
+TEST(ConnectionSessionTest, PerMessageExpirationExpiresOnPurge) {
+    auto host = std::make_shared<broker::VirtualHost>();
+    std::vector<std::string> sent;
+    ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    }, host);
+    establishReady(session, sent);
+    ASSERT_TRUE(host->declareQueue(
+                    broker::QueueSpec{"q1", false, false, false})
+                    .ok);
+
+    const uint16_t channel = 1;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Open),
+                        encodeChannelOpen(ChannelOpen{}), channel))
+                    .ok);
+
+    BasicPublish publish;
+    publish.exchange = "";
+    publish.routing_key = "q1";
+    const std::string body = "short";
+    const SessionResult result = session.feed(
+        encodeMethodFrame(
+            kBasicClassId,
+            static_cast<uint16_t>(BasicMethodId::Publish),
+            encodeBasicPublish(publish), channel) +
+        encodeRawFrame(kFrameHeader, channel,
+                       encodeExpirationContentHeader(body.size(), "20")) +
+        encodeRawFrame(kFrameBody, channel, body));
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_EQ(host->messageCount("q1"), 1U);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(40));
+    const broker::BrokerResult purged = host->purgeQueue("q1");
+    ASSERT_TRUE(purged.ok) << purged.error;
+    EXPECT_EQ(purged.count, 0U);
+}
+
+TEST(ConnectionSessionTest, QosPrefetchLimitsAndRefillsDelivery) {
+    auto host = std::make_shared<broker::VirtualHost>();
+    std::vector<std::string> sent;
+    ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    }, host);
+    establishReady(session, sent);
+    ASSERT_TRUE(host->declareQueue(
+                    broker::QueueSpec{"q1", false, false, false})
+                    .ok);
+
+    const uint16_t channel = 1;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Open),
+                        encodeChannelOpen(ChannelOpen{}), channel))
+                    .ok);
+    BasicQos qos;
+    qos.prefetch_count = 1;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kBasicClassId,
+                        static_cast<uint16_t>(BasicMethodId::Qos),
+                        encodeBasicQos(qos), channel))
+                    .ok);
+    BasicConsume consume;
+    consume.queue = "q1";
+    consume.no_ack = false;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kBasicClassId,
+                        static_cast<uint16_t>(BasicMethodId::Consume),
+                        encodeBasicConsume(consume), channel))
+                    .ok);
+
+    auto publish = [&](const std::string& body) {
+        BasicPublish publish;
+        publish.exchange = "";
+        publish.routing_key = "q1";
+        return session.feed(
+            encodeMethodFrame(
+                kBasicClassId,
+                static_cast<uint16_t>(BasicMethodId::Publish),
+                encodeBasicPublish(publish), channel) +
+            encodeRawFrame(kFrameHeader, channel,
+                           encodeContentHeader(body.size())) +
+            encodeRawFrame(kFrameBody, channel, body));
+    };
+
+    ASSERT_TRUE(publish("one").ok);
+    ASSERT_TRUE(publish("two").ok);
+    EXPECT_EQ(host->unackedCount(), 1U);
+    EXPECT_EQ(host->messageCount("q1"), 1U);
+
+    MethodHeader header;
+    std::string error;
+    ASSERT_TRUE(decodeCapturedMethod(sent[sent.size() - 3], header, error))
+        << error;
+    BasicDeliver first;
+    ASSERT_TRUE(decodeBasicDeliver(header.arguments, first, error)) << error;
+
+    BasicAck ack;
+    ack.delivery_tag = first.delivery_tag;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kBasicClassId,
+                        static_cast<uint16_t>(BasicMethodId::Ack),
+                        encodeBasicAck(ack), channel))
+                    .ok);
+    EXPECT_EQ(host->unackedCount(), 1U);
+    EXPECT_EQ(host->messageCount("q1"), 0U);
+    ASSERT_TRUE(decodeCapturedMethod(sent[sent.size() - 3], header, error))
+        << error;
+    BasicDeliver second;
+    ASSERT_TRUE(decodeBasicDeliver(header.arguments, second, error)) << error;
+    EXPECT_NE(second.delivery_tag, first.delivery_tag);
+}
+
+TEST(ConnectionSessionTest, ConsumerTagIsScopedPerChannel) {
+    auto host = std::make_shared<broker::VirtualHost>();
+    std::vector<std::string> sent;
+    ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    }, host);
+    establishReady(session, sent);
+    ASSERT_TRUE(host->declareQueue(
+                    broker::QueueSpec{"q1", false, false, false})
+                    .ok);
+
+    const auto consume_on = [&](uint16_t channel) {
+        BasicConsume consume;
+        consume.queue = "q1";
+        consume.consumer_tag = "same";
+        return session.feed(encodeMethodFrame(
+            kBasicClassId,
+            static_cast<uint16_t>(BasicMethodId::Consume),
+            encodeBasicConsume(consume), channel));
+    };
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Open),
+                        encodeChannelOpen(ChannelOpen{}), 1))
+                    .ok);
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Open),
+                        encodeChannelOpen(ChannelOpen{}), 2))
+                    .ok);
+    ASSERT_TRUE(consume_on(1).ok);
+    ASSERT_TRUE(consume_on(2).ok);
+
+    BasicCancel cancel;
+    cancel.consumer_tag = "same";
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kBasicClassId,
+                        static_cast<uint16_t>(BasicMethodId::Cancel),
+                        encodeBasicCancel(cancel), 1))
+                    .ok);
+
+    // Channel 2 still has its consumer with the same tag.
+    BasicCancel cancel_two;
+    cancel_two.consumer_tag = "same";
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kBasicClassId,
+                        static_cast<uint16_t>(BasicMethodId::Cancel),
+                        encodeBasicCancel(cancel_two), 2))
+                    .ok);
 }
 
 }  // namespace mq::amqp091

@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
+#include <vector>
 
 namespace mq::amqp091 {
 
@@ -33,10 +35,7 @@ ConnectionSession::ConnectionSession(const ConnectionConfig& config,
       virtual_host_(std::move(virtual_host)) {}
 
 ConnectionSession::~ConnectionSession() {
-    if (virtual_host_) {
-        virtual_host_->requeueUnacked(this);
-        virtual_host_->unregisterConsumers(this);
-    }
+    if (virtual_host_) virtual_host_->disconnectOwner(this);
 }
 
 SessionResult ConnectionSession::feed(std::string_view bytes) {
@@ -257,7 +256,7 @@ SessionResult ConnectionSession::handleQueueMethod(
             spec.message_ttl_ms = message_ttl_ms;
         }
         const broker::BrokerResult result =
-            virtual_host_->declareQueue(spec);
+            virtual_host_->declareQueue(spec, this);
         if (!result.ok) {
             return sendChannelError(channel, result.reply_code, kQueueClassId,
                                     static_cast<uint16_t>(method),
@@ -267,7 +266,8 @@ SessionResult ConnectionSession::handleQueueMethod(
             QueueDeclareOk ok;
             ok.queue = declare.queue;
             ok.message_count = virtual_host_->messageCount(declare.queue);
-            ok.consumer_count = 0;
+            ok.consumer_count = static_cast<uint32_t>(
+                virtual_host_->consumerCount(declare.queue));
             return sendMethodOnChannel(
                 channel, kQueueClassId,
                 static_cast<uint16_t>(QueueMethodId::DeclareOk),
@@ -407,11 +407,17 @@ SessionResult ConnectionSession::handleBasicMethod(
                                     static_cast<uint16_t>(method),
                                     "queue not found");
         }
-        if (consume.consumer_tag.empty()) {
-            consume.consumer_tag =
-                "ctag-" + std::to_string(++generated_consumer_seq_);
-        }
-        if (consumers_.find(consume.consumer_tag) != consumers_.end()) {
+        const std::string client_tag = consume.consumer_tag.empty()
+                                           ? "ctag-" +
+                                                 std::to_string(
+                                                     ++generated_consumer_seq_)
+                                           : consume.consumer_tag;
+        const std::string broker_tag =
+            "b-" + std::to_string(++generated_consumer_seq_);
+        const auto lookup_key =
+            std::make_pair(channel, client_tag);
+        if (client_consumer_lookup_.find(lookup_key) !=
+            client_consumer_lookup_.end()) {
             return sendChannelError(channel, 530, kBasicClassId,
                                     static_cast<uint16_t>(method),
                                     "consumer tag already in use");
@@ -420,31 +426,49 @@ SessionResult ConnectionSession::handleBasicMethod(
         SessionConsumer consumer;
         consumer.channel = channel;
         consumer.queue = consume.queue;
-        consumer.consumer_tag = consume.consumer_tag;
-        consumers_[consume.consumer_tag] = consumer;
+        consumer.client_tag = client_tag;
+        consumer.broker_tag = broker_tag;
+        broker_consumers_[broker_tag] = consumer;
+        client_consumer_lookup_[lookup_key] = broker_tag;
 
         if (!consume.no_wait) {
             const SessionResult ok = sendMethodOnChannel(
                 channel, kBasicClassId,
                 static_cast<uint16_t>(BasicMethodId::ConsumeOk),
-                encodeBasicConsumeOk(consume.consumer_tag));
+                encodeBasicConsumeOk(client_tag));
             if (!ok.ok) return ok;
         }
 
         const broker::BrokerResult result = virtual_host_->registerConsumer(
-            consume.queue, consume.consumer_tag, this,
+            consume.queue, broker_tag, this,
             [this](const std::string& tag, const std::string& queue,
                    const broker::Message& message) {
                 deliverToConsumer(tag, queue, message);
             },
-            consume.no_ack);
+            consume.no_ack, channel_prefetch_[channel], consume.no_local,
+            consume.exclusive);
         if (!result.ok) {
-            consumers_.erase(consume.consumer_tag);
+            broker_consumers_.erase(broker_tag);
+            client_consumer_lookup_.erase(lookup_key);
             return sendChannelError(channel, result.reply_code, kBasicClassId,
                                     static_cast<uint16_t>(method),
                                     result.error);
         }
         return SessionResult{};
+    }
+
+    if (method == BasicMethodId::Qos) {
+        BasicQos qos;
+        std::string error;
+        if (!decodeBasicQos(header.arguments, qos, error)) {
+            return sendChannelError(channel, 502, kBasicClassId,
+                                    static_cast<uint16_t>(method),
+                                    "invalid basic.qos");
+        }
+        channel_prefetch_[channel] = qos.prefetch_count;
+        return sendMethodOnChannel(
+            channel, kBasicClassId,
+            static_cast<uint16_t>(BasicMethodId::QosOk), "");
     }
 
     if (method == BasicMethodId::Cancel) {
@@ -455,15 +479,26 @@ SessionResult ConnectionSession::handleBasicMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid basic.cancel");
         }
-        const auto it = consumers_.find(cancel.consumer_tag);
-        if (it == consumers_.end()) {
+        const auto lookup_key =
+            std::make_pair(channel, cancel.consumer_tag);
+        const auto lookup_it = client_consumer_lookup_.find(lookup_key);
+        if (lookup_it == client_consumer_lookup_.end()) {
             return sendChannelError(channel, 530, kBasicClassId,
                                     static_cast<uint16_t>(method),
                                     "consumer not found");
         }
-        const std::string queue = it->second.queue;
-        virtual_host_->unregisterConsumer(queue, cancel.consumer_tag, this);
-        consumers_.erase(it);
+        const std::string broker_tag = lookup_it->second;
+        const auto broker_it = broker_consumers_.find(broker_tag);
+        if (broker_it == broker_consumers_.end()) {
+            client_consumer_lookup_.erase(lookup_it);
+            return sendChannelError(channel, 530, kBasicClassId,
+                                    static_cast<uint16_t>(method),
+                                    "consumer not found");
+        }
+        const std::string queue = broker_it->second.queue;
+        virtual_host_->unregisterConsumer(queue, broker_tag, this);
+        broker_consumers_.erase(broker_it);
+        client_consumer_lookup_.erase(lookup_it);
         if (!cancel.no_wait) {
             return sendMethodOnChannel(
                 channel, kBasicClassId,
@@ -483,19 +518,23 @@ SessionResult ConnectionSession::handleBasicMethod(
         }
         auto& channel_map = delivery_tag_to_message_[channel];
         if (ack.multiple) {
+            std::vector<uint64_t> message_ids;
             for (auto it = channel_map.begin(); it != channel_map.end();) {
                 if (it->first <= ack.delivery_tag) {
-                    const broker::BrokerResult result =
-                        virtual_host_->ackMessage(it->second);
-                    if (!result.ok) {
-                        return sendChannelError(channel, result.reply_code,
-                                                kBasicClassId,
-                                                static_cast<uint16_t>(method),
-                                                result.error);
-                    }
+                    message_ids.push_back(it->second);
                     it = channel_map.erase(it);
                 } else {
                     ++it;
+                }
+            }
+            for (const uint64_t message_id : message_ids) {
+                const broker::BrokerResult result =
+                    virtual_host_->ackMessage(message_id);
+                if (!result.ok) {
+                    return sendChannelError(channel, result.reply_code,
+                                            kBasicClassId,
+                                            static_cast<uint16_t>(method),
+                                            result.error);
                 }
             }
             return SessionResult{};
@@ -506,14 +545,15 @@ SessionResult ConnectionSession::handleBasicMethod(
                                     static_cast<uint16_t>(method),
                                     "unknown delivery tag");
         }
+        const uint64_t message_id = it->second;
+        channel_map.erase(it);
         const broker::BrokerResult result =
-            virtual_host_->ackMessage(it->second);
+            virtual_host_->ackMessage(message_id);
         if (!result.ok) {
             return sendChannelError(channel, result.reply_code, kBasicClassId,
                                     static_cast<uint16_t>(method),
                                     result.error);
         }
-        channel_map.erase(it);
         return SessionResult{};
     }
 
@@ -613,12 +653,13 @@ void ConnectionSession::sendContent(uint16_t channel,
 void ConnectionSession::deliverToConsumer(
     const std::string& consumer_tag, const std::string&,
     const broker::Message& message) {
-    const auto it = consumers_.find(consumer_tag);
-    if (it == consumers_.end()) return;
+    const auto it = broker_consumers_.find(consumer_tag);
+    if (it == broker_consumers_.end()) return;
     const uint16_t channel = it->second.channel;
+    const std::string client_tag = it->second.client_tag;
 
     BasicDeliver deliver;
-    deliver.consumer_tag = consumer_tag;
+    deliver.consumer_tag = client_tag;
     deliver.delivery_tag = ++delivery_seq_[channel];
     deliver.redelivered = message.redelivered;
     deliver.exchange = message.exchange;
@@ -679,6 +720,18 @@ SessionResult ConnectionSession::finishPendingContent(
     message.persistent = pending.header.persistent;
     message.exchange = pending.publish.exchange;
     message.routing_key = pending.publish.routing_key;
+    message.publisher_owner = this;
+    if (!pending.header.expiration.empty()) {
+        try {
+            const uint64_t expiration_ms =
+                std::stoull(pending.header.expiration);
+            message.ttl_ms =
+                static_cast<uint32_t>(std::min<uint64_t>(
+                    expiration_ms, std::numeric_limits<uint32_t>::max()));
+        } catch (...) {
+            // Invalid expiration text is ignored, matching RabbitMQ.
+        }
+    }
 
     size_t delivered = 0;
     broker::BrokerResult result = virtual_host_->publish(

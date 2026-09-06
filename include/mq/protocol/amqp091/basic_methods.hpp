@@ -94,6 +94,12 @@ struct BasicGetOk {
     uint32_t message_count = 0;
 };
 
+struct BasicQos {
+    uint32_t prefetch_size = 0;
+    uint16_t prefetch_count = 0;
+    bool global = false;
+};
+
 std::string encodeBasicPublish(const BasicPublish& publish);
 bool decodeBasicPublish(std::string_view arguments, BasicPublish& publish,
                         std::string& error);
@@ -133,10 +139,15 @@ std::string encodeBasicGetOk(const BasicGetOk& ok);
 bool decodeBasicGetOk(std::string_view arguments, BasicGetOk& ok,
                       std::string& error);
 
+std::string encodeBasicQos(const BasicQos& qos);
+bool decodeBasicQos(std::string_view arguments, BasicQos& qos,
+                    std::string& error);
+
 struct ContentHeaderInfo {
     uint16_t class_id = 0;
     uint64_t body_size = 0;
     bool persistent = false;
+    std::string expiration;
 };
 
 // Builds a content header payload for the Basic class without properties.

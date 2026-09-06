@@ -89,7 +89,8 @@ private:
     struct SessionConsumer {
         uint16_t channel = 0;
         std::string queue;
-        std::string consumer_tag;
+        std::string client_tag;
+        std::string broker_tag;
     };
 
     SessionResult processFrames(std::string_view bytes);
@@ -135,8 +136,11 @@ private:
     uint16_t heartbeat_ = 0;
     std::map<uint16_t, ChannelState> channels_;
     std::map<uint16_t, PendingContent> pending_content_;
-    std::map<std::string, SessionConsumer> consumers_;
+    std::map<std::string, SessionConsumer> broker_consumers_;
+    std::map<std::pair<uint16_t, std::string>, std::string>
+        client_consumer_lookup_;
     std::map<uint16_t, uint64_t> delivery_seq_;
+    std::map<uint16_t, uint16_t> channel_prefetch_;
     std::map<uint16_t, std::map<uint64_t, uint64_t>>
         delivery_tag_to_message_;
     uint64_t generated_consumer_seq_ = 0;

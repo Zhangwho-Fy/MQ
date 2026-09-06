@@ -313,6 +313,21 @@ TEST(VirtualHostTest, TtlExpiredMessagesDeadLetterOnPurge) {
     EXPECT_EQ(host.messageCount("dlq"), 1U);
 }
 
+TEST(VirtualHostTest, PerMessageTtlExpiresMessage) {
+    VirtualHost host;
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q1", false, false, false}).ok);
+    Message message;
+    message.body = "short-lived";
+    message.ttl_ms = 20;
+    ASSERT_TRUE(host.publish("", "q1", message).ok);
+    EXPECT_EQ(host.messageCount("q1"), 1U);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(40));
+    const BrokerResult purged = host.purgeQueue("q1");
+    ASSERT_TRUE(purged.ok) << purged.error;
+    EXPECT_EQ(purged.count, 0U);
+}
+
 TEST(VirtualHostTest, GetPullsMessageAndTracksUnacked) {
     VirtualHost host;
     ASSERT_TRUE(host.declareQueue(QueueSpec{"q1", false, false, false}).ok);
@@ -346,6 +361,122 @@ TEST(VirtualHostTest, GetEmptyQueueReturnsNoMessage) {
     ASSERT_TRUE(result.ok) << result.error;
     EXPECT_FALSE(has);
     EXPECT_EQ(host.unackedCount(), 0U);
+}
+
+TEST(VirtualHostTest, PrefetchRefillsAfterAck) {
+    VirtualHost host;
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q1", false, false, false}).ok);
+    std::vector<Message> received;
+    ASSERT_TRUE(host
+                    .registerConsumer(
+                        "q1", "c1", this,
+                        [&](const std::string&, const std::string&,
+                            const Message& message) {
+                            received.push_back(message);
+                        },
+                        false, 2)
+                    .ok);
+    ASSERT_TRUE(host.publish("", "q1", Message{"a", false}).ok);
+    ASSERT_TRUE(host.publish("", "q1", Message{"b", false}).ok);
+    ASSERT_TRUE(host.publish("", "q1", Message{"c", false}).ok);
+    ASSERT_EQ(received.size(), 2U);
+
+    // We know the acked ids only through VirtualHost's unacked table.
+    // Expose it indirectly: ack both currently delivered messages via ids
+    // captured by the callback.
+    ASSERT_TRUE(host.ackMessage(received[0].id).ok);
+    ASSERT_EQ(received.size(), 3U);
+    EXPECT_EQ(received[2].body, "c");
+    EXPECT_EQ(host.messageCount("q1"), 0U);
+    EXPECT_EQ(host.unackedCount(), 2U);
+}
+
+TEST(VirtualHostTest, ExclusiveConsumerBlocksOthers) {
+    VirtualHost host;
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q1", false, false, false}).ok);
+    int owner_a = 0;
+    int owner_b = 0;
+    ASSERT_TRUE(host
+                    .registerConsumer(
+                        "q1", "c1", &owner_a,
+                        [](const std::string&, const std::string&,
+                           const Message&) {},
+                        false, 0, false, true)
+                    .ok);
+    const BrokerResult second = host.registerConsumer(
+        "q1", "c2", &owner_b,
+        [](const std::string&, const std::string&, const Message&) {},
+        false, 0, false, false);
+    EXPECT_FALSE(second.ok);
+    EXPECT_EQ(second.reply_code, VirtualHost::kAccessRefused);
+}
+
+TEST(VirtualHostTest, NoLocalSkipsOwnMessages) {
+    VirtualHost host;
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q1", false, false, false}).ok);
+    int owner = 0;
+    size_t delivered = 0;
+    ASSERT_TRUE(host
+                    .registerConsumer(
+                        "q1", "c1", &owner,
+                        [&](const std::string&, const std::string&,
+                            const Message&) { ++delivered; },
+                        false, 0, true, false)
+                    .ok);
+
+    Message message;
+    message.body = "own";
+    message.publisher_owner = &owner;
+    ASSERT_TRUE(host.publish("", "q1", message).ok);
+    EXPECT_EQ(delivered, 0U);
+    EXPECT_EQ(host.messageCount("q1"), 1U);
+}
+
+TEST(VirtualHostTest, AutoDeleteQueueAfterLastConsumer) {
+    VirtualHost host;
+    QueueSpec spec;
+    spec.name = "q1";
+    spec.auto_delete = true;
+    ASSERT_TRUE(host.declareQueue(spec).ok);
+    int owner = 0;
+    ASSERT_TRUE(host
+                    .registerConsumer(
+                        "q1", "c1", &owner,
+                        [](const std::string&, const std::string&,
+                           const Message&) {},
+                        true)
+                    .ok);
+    EXPECT_TRUE(host.hasQueue("q1"));
+    host.unregisterConsumer("q1", "c1", &owner);
+    EXPECT_FALSE(host.hasQueue("q1"));
+}
+
+TEST(VirtualHostTest, DeleteQueueIfUnusedFailsWithConsumers) {
+    VirtualHost host;
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q1", false, false, false}).ok);
+    int owner = 0;
+    ASSERT_TRUE(host
+                    .registerConsumer(
+                        "q1", "c1", &owner,
+                        [](const std::string&, const std::string&,
+                           const Message&) {},
+                        true)
+                    .ok);
+    const BrokerResult result = host.deleteQueue("q1", true, false);
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.reply_code, VirtualHost::kPreconditionFailed);
+}
+
+TEST(VirtualHostTest, DisconnectRemovesExclusiveQueue) {
+    VirtualHost host;
+    int owner = 0;
+    QueueSpec spec;
+    spec.name = "q1";
+    spec.exclusive = true;
+    ASSERT_TRUE(host.declareQueue(spec, &owner).ok);
+    ASSERT_TRUE(host.publish("", "q1", Message{"a", false}).ok);
+    host.disconnectOwner(&owner);
+    EXPECT_FALSE(host.hasQueue("q1"));
 }
 
 }  // namespace mq::broker

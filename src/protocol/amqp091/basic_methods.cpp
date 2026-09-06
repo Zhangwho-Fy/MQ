@@ -46,10 +46,14 @@ bool readBits(WireReader& reader, std::initializer_list<bool*> bits) {
     return true;
 }
 
-bool skipShortString(WireReader& reader) {
+bool readShortStringValue(WireReader& reader, std::string& value) {
     uint8_t length = 0;
     std::string_view bytes;
-    return reader.readU8(length) && reader.readBytes(length, bytes);
+    if (!reader.readU8(length) || !reader.readBytes(length, bytes)) {
+        return false;
+    }
+    value.assign(bytes.data(), bytes.size());
+    return true;
 }
 
 bool skipTable(WireReader& reader) {
@@ -267,6 +271,25 @@ bool decodeBasicGetOk(std::string_view arguments, BasicGetOk& ok,
            reader.readU32(ok.message_count);
 }
 
+std::string encodeBasicQos(const BasicQos& qos) {
+    WireWriter writer;
+    writer.writeU32(qos.prefetch_size);
+    writer.writeU16(qos.prefetch_count);
+    writeBits(writer, {qos.global});
+    return writer.takeBytes();
+}
+
+bool decodeBasicQos(std::string_view arguments, BasicQos& qos,
+                    std::string& error) {
+    WireReader reader(arguments);
+    if (!reader.readU32(qos.prefetch_size) ||
+        !reader.readU16(qos.prefetch_count)) {
+        error = "truncated basic.qos";
+        return false;
+    }
+    return readBits(reader, {&qos.global});
+}
+
 std::string encodeContentHeader(uint64_t body_size) {
     WireWriter writer;
     writer.writeU16(kBasicClassId);
@@ -325,9 +348,13 @@ bool decodeContentHeader(std::string_view payload, ContentHeaderInfo& info,
         const uint16_t mask = static_cast<uint16_t>(0x8000U >> i);
         if ((flags & mask) == 0) continue;
         if (properties[i].kind == 's') {
-            if (!skipShortString(reader)) {
+            std::string value;
+            if (!readShortStringValue(reader, value)) {
                 error = "invalid short string property";
                 return false;
+            }
+            if (i == 7) {  // expiration
+                info.expiration = std::move(value);
             }
         } else if (properties[i].kind == 'o') {
             uint8_t value = 0;
