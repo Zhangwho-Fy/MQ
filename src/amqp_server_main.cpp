@@ -5,7 +5,16 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <csignal>
 #include <string>
+
+namespace {
+mq::transport::AmqpServer* g_server = nullptr;
+
+void handleStopSignal(int) {
+    if (g_server != nullptr) g_server->requestStop();
+}
+}  // namespace
 
 int main(int argc, char** argv) {
     uint16_t port = 5672;
@@ -51,6 +60,9 @@ int main(int argc, char** argv) {
 
     ILOG("starting AMQP server on 0.0.0.0:%u", static_cast<unsigned>(port));
     mq::transport::AmqpServer server(port, config, data_dir, http_port);
+    g_server = &server;
+    std::signal(SIGINT, handleStopSignal);
+    std::signal(SIGTERM, handleStopSignal);
     if (const char* users = std::getenv("MQ_USERS"); users != nullptr) {
         std::string all = users;
         size_t start = 0;

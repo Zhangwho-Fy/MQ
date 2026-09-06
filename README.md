@@ -1,25 +1,30 @@
 # MQ：AMQP 0-9-1 轻量级消息中间件
 
-基于 C++17 实现的 RabbitMQ 风格轻量消息队列，直接使用 AMQP 0-9-1 二进制协议，支持持久化、多交换机类型、消费者确认、DLX、TTL、QoS 和真实客户端互操作。
+基于 C++17 实现的 RabbitMQ 风格轻量消息队列，使用标准 AMQP 0-9-1 二进制协议，支持持久化、多交换机、消费者确认、DLX/TTL、publisher confirm、多 vhost 与 HTTP 管理接口，并已通过 pika 真实客户端互操作验证。
 
 ## 核心能力
 
 - AMQP 0-9-1 帧、连接握手、信道协议
 - direct / fanout / topic 交换机与绑定
-- publish / consume / basic.get
+- publish / consume / basic.get / recover
 - ack / reject / requeue / redelivered
-- DLX 与队列级/消息级 TTL
+- publisher confirm
+- Basic 属性透传
+- DLX、队列级/消息级 TTL
 - heartbeat 超时
 - basic.qos prefetch
 - no-local、exclusive consumer
 - exclusive / auto-delete 队列生命周期
-- SQLite 元数据 + 队列消息日志持久化
-- pika 真实客户端互操作验证
+- SQLite 元数据 + 队列消息日志持久化与日志压缩
+- 多线程 IO、VirtualHost 并发保护
+- 多 vhost + PLAIN 认证（PBKDF2）
+- 管理 HTTP API
+- graceful shutdown
 
 ## 技术栈
 
 - C++17
-- muduo（网络）
+- muduo（网络 / HTTP）
 - SQLite3（元数据）
 - GoogleTest（测试）
 - pika（互操作冒烟）
@@ -29,7 +34,7 @@
 依赖：
 
 ```bash
-sudo apt-get install -y cmake g++ libboost-dev libprotobuf-dev protobuf-compiler libsqlite3-dev libgtest-dev
+sudo apt-get install -y cmake g++ libboost-dev libsqlite3-dev libgtest-dev
 ```
 
 构建：
@@ -45,27 +50,44 @@ cmake --build build -j4
 ./build/amqp_server -p 5672 --data ./data
 ```
 
-配置用户与 vhost（默认 `guest/guest` 可访问 `/`）：
+同时启用管理 HTTP API：
+
+```bash
+./build/amqp_server \
+  -p 5672 \
+  --http-port 15672 \
+  --data ./data
+```
+
+默认用户 `guest/guest`，可访问 vhost `/`。
+
+配置更多用户与 vhost：
 
 ```bash
 MQ_USERS='alice:secret:/alice;bob:pass:/bob' \
   ./build/amqp_server -p 5672 --data ./data
 ```
 
-启用管理 HTTP API：
+### pika 互操作
 
 ```bash
-./build/amqp_server -p 5672 --http-port 15672 --data ./data
-curl http://127.0.0.1:15672/api/overview
-```
-
-pika 互操作冒烟：
-
-```bash
+python3 -m pip install pika
 python3 tools/pika_interop_smoke.py --port 5672
 ```
 
-测试：
+### 管理 API 示例
+
+```bash
+curl -u guest:guest \
+     -H 'X-Virtual-Host: /' \
+     http://127.0.0.1:15672/api/overview
+
+curl -u alice:secret \
+     -H 'X-Virtual-Host: /alice' \
+     http://127.0.0.1:15672/api/queues
+```
+
+### 测试
 
 ```bash
 ctest --test-dir build --output-on-failure
@@ -82,8 +104,14 @@ common/        公共日志
 mqthird/       muduo 静态库
 ```
 
-API 文档见 `docs/openapi.yaml`，可用浏览器打开 `docs/swagger-ui.html` 预览。
+文档：
+
+- 管理 API：`docs/openapi.yaml`，可打开 `docs/swagger-ui.html` 预览
+- 架构与调用流程：`docs/architecture-and-flows.md`（本地文档）
 
 ## 说明
 
-默认账号为 `guest/guest`，virtual host 为 `/`。当前目标是功能完整的轻量 AMQP 服务器，适合学习和内部试用，尚未覆盖事务、publisher confirm、headers 交换机、多 vhost 与生产级运维能力。
+默认账号为 `guest/guest`，virtual host 为 `/`。项目目标是功能完整的轻量 AMQP 服务器，适合学习和内部试用。
+
+尚未覆盖：headers exchange、tx 事务、用户数据持久化、TLS、集群复制与完整监控告警。这些属于生产化扩展，不属于当前重构范围。
+

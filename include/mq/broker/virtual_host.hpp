@@ -139,6 +139,8 @@ public:
                         const std::string& queue) const;
     std::vector<QueueInfo> listQueues() const;
     std::vector<ExchangeInfo> listExchanges() const;
+    uint64_t publishedCount() const;
+    uint64_t ackedCount() const;
 
 private:
     struct QueueEntry {
@@ -185,6 +187,8 @@ private:
     std::map<std::string, size_t> consumer_round_robin_;
     std::map<uint64_t, UnackedEntry> unacked_;
     uint64_t next_message_id_ = 1;
+    uint64_t published_count_ = 0;
+    uint64_t acked_count_ = 0;
     std::string data_dir_;
     void* db_ = nullptr;
     mutable std::recursive_mutex mutex_;

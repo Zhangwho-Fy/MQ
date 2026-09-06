@@ -641,6 +641,7 @@ BrokerResult VirtualHost::publish(const std::string& exchange,
                                   const Message& message,
                                   size_t* delivered) {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
+    ++published_count_;
     size_t count = 0;
 
     const auto routeToQueue = [&](const std::string& queue) {
@@ -830,6 +831,7 @@ BrokerResult VirtualHost::ackMessage(uint64_t message_id) {
     }
     UnackedEntry entry = std::move(it->second);
     unacked_.erase(it);
+    ++acked_count_;
     if (entry.message.persistent) {
         const auto queue_it = queues_.find(entry.queue);
         if (queue_it != queues_.end() &&
@@ -1179,6 +1181,16 @@ std::vector<ExchangeInfo> VirtualHost::listExchanges() const {
         result.push_back(std::move(info));
     }
     return result;
+}
+
+uint64_t VirtualHost::publishedCount() const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    return published_count_;
+}
+
+uint64_t VirtualHost::ackedCount() const {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    return acked_count_;
 }
 
 }  // namespace mq::broker

@@ -25,6 +25,8 @@ tags:
     description: 服务器概况
   - name: Exchanges
     description: 交换机管理
+  - name: Connections
+    description: 连接信息
   - name: Queues
     description: 队列管理与监控
 
@@ -63,6 +65,25 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ExchangeInfo"
+        "400":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/connections:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/VirtualHostHeader"
+      tags: [Connections]
+      operationId: listConnections
+      summary: 获取连接列表
+      responses:
+        "200":
+          description: 连接列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConnectionInfo"
         "400":
           $ref: "#/components/responses/Unauthorized"
 
@@ -177,6 +198,20 @@ components:
           type: integer
           description: 交换机总数
           example: 1
+        published:
+          type: integer
+          description: 该 vhost 累计发布消息数
+        acked:
+          type: integer
+          description: 该 vhost 累计确认消息数
+
+    ConnectionInfo:
+      type: object
+      properties:
+        peer:
+          type: string
+          description: 客户端地址
+          example: 127.0.0.1:54321
 
     ExchangeInfo:
       type: object

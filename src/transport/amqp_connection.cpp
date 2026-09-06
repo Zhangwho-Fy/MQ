@@ -197,7 +197,17 @@ void AmqpServer::run() {
         ILOG("management HTTP server listening on port %u",
              static_cast<unsigned>(management_port_));
     }
+    loop_.runEvery(0.2, [this]() {
+        if (stop_requested_ != 0) {
+            ILOG("graceful shutdown requested");
+            loop_.quit();
+        }
+    });
     loop_.loop();
+}
+
+void AmqpServer::requestStop() {
+    stop_requested_ = 1;
 }
 
 bool AmqpServer::addUser(const std::string& username,
@@ -298,7 +308,27 @@ void AmqpServer::onHttpRequest(const muduo::net::HttpRequest& request,
         response->setBody(
             "{\"connections\":" + std::to_string(connectionCount()) +
             ",\"queues\":" + std::to_string(queues.size()) +
-            ",\"exchanges\":" + std::to_string(exchanges.size()) + "}");
+            ",\"exchanges\":" + std::to_string(exchanges.size()) +
+            ",\"published\":" + std::to_string(vhost->publishedCount()) +
+            ",\"acked\":" + std::to_string(vhost->ackedCount()) + "}");
+        return;
+    }
+
+    if (path == "/api/connections") {
+        std::string body = "[";
+        bool first = true;
+        {
+            std::lock_guard<std::mutex> lock(connections_mutex_);
+            for (const auto& entry : connections_) {
+                if (!first) body += ",";
+                first = false;
+                body += "{\"peer\":\"" +
+                        jsonEscape(entry.first->peerAddress().toIpPort()) +
+                        "\"}";
+            }
+        }
+        body += "]";
+        response->setBody(body);
         return;
     }
 

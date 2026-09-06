@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <chrono>
+#include <csignal>
 #include <functional>
 #include <map>
 #include <memory>
@@ -57,6 +58,7 @@ public:
                         uint16_t management_port = 0);
 
     void run();
+    void requestStop();
     bool addUser(const std::string& username, const std::string& password,
                  const std::string& vhost_name);
 
@@ -78,6 +80,7 @@ private:
     mutable std::mutex connections_mutex_;
     std::unique_ptr<muduo::net::HttpServer> http_server_;
     uint16_t management_port_ = 0;
+    volatile std::sig_atomic_t stop_requested_ = 0;
 };
 
 }  // namespace mq::transport
