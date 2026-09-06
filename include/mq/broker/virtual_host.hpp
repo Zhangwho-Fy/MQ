@@ -179,6 +179,10 @@ private:
                           const std::string& routing_key);
     void removeBindingsForExchange(const std::string& exchange);
     void removeBindingsForQueue(const std::string& queue);
+    void appendMessageLog(const std::string& queue, const Message& message);
+    void appendTombstoneLog(const std::string& queue, uint64_t message_id);
+    void removeQueueLog(const std::string& queue);
+    void recoverQueueMessages(const std::string& queue);
 };
 
 }  // namespace mq::broker

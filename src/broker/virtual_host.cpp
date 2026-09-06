@@ -4,6 +4,8 @@
 #include <cerrno>
 #include <chrono>
 #include <cstring>
+#include <fstream>
+#include <iterator>
 #include <sys/stat.h>
 #include <vector>
 
@@ -91,6 +93,31 @@ bool sqlExec(sqlite3* db, const std::string& sql) {
     return true;
 }
 
+void appendU16(std::string& out, uint16_t value) {
+    out.push_back(static_cast<char>((value >> 8) & 0xff));
+    out.push_back(static_cast<char>(value & 0xff));
+}
+
+void appendU32(std::string& out, uint32_t value) {
+    for (int shift = 24; shift >= 0; shift -= 8) {
+        out.push_back(static_cast<char>((value >> shift) & 0xff));
+    }
+}
+
+void appendU64(std::string& out, uint64_t value) {
+    for (int shift = 56; shift >= 0; shift -= 8) {
+        out.push_back(static_cast<char>((value >> shift) & 0xff));
+    }
+}
+
+bool appendFile(const std::string& path, const std::string& bytes) {
+    std::ofstream out(path, std::ios::binary | std::ios::app);
+    if (!out.is_open()) return false;
+    out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    out.flush();
+    return out.good();
+}
+
 void ensureDirectory(const std::string& path) {
     if (path.empty()) return;
     size_t pos = 0;
@@ -100,6 +127,11 @@ void ensureDirectory(const std::string& path) {
         ++pos;
     }
     if (!path.empty()) ::mkdir(path.c_str(), 0755);
+}
+
+std::string queueLogPath(const std::string& data_dir,
+                         const std::string& queue) {
+    return data_dir + "/queues/" + queue + ".log";
 }
 
 }  // namespace
@@ -116,6 +148,7 @@ VirtualHost::~VirtualHost() {
 bool VirtualHost::openStorage() {
     if (data_dir_.empty()) return false;
     ensureDirectory(data_dir_);
+    ensureDirectory(data_dir_ + "/queues");
     const std::string dbfile = data_dir_ + "/meta.db";
     sqlite3* db = nullptr;
     if (sqlite3_open_v2(dbfile.c_str(), &db,
@@ -219,6 +252,137 @@ void VirtualHost::recoverStorage() {
             }
         }
         sqlite3_finalize(stmt);
+    }
+
+    for (const auto& queue_entry : queues_) {
+        if (queue_entry.second.spec.durable) {
+            recoverQueueMessages(queue_entry.first);
+        }
+    }
+}
+
+void VirtualHost::appendMessageLog(const std::string& queue,
+                                   const Message& message) {
+    if (db_ == nullptr) return;
+    const auto queue_it = queues_.find(queue);
+    if (queue_it == queues_.end() ||
+        !queue_it->second.spec.durable) {
+        return;
+    }
+    std::string record;
+    record.push_back(1);
+    appendU64(record, message.id);
+    appendU32(record, static_cast<uint32_t>(message.body.size()));
+    record.append(message.body);
+    appendU16(record, static_cast<uint16_t>(message.exchange.size()));
+    record.append(message.exchange);
+    appendU16(record, static_cast<uint16_t>(message.routing_key.size()));
+    record.append(message.routing_key);
+    appendU64(record, message.expire_at_ms);
+    appendU32(record, message.ttl_ms);
+    appendU32(record, message.dead_letter_count);
+    appendFile(queueLogPath(data_dir_, queue), record);
+}
+
+void VirtualHost::appendTombstoneLog(const std::string& queue,
+                                     uint64_t message_id) {
+    if (db_ == nullptr) return;
+    std::string record;
+    record.push_back(2);
+    appendU64(record, message_id);
+    appendFile(queueLogPath(data_dir_, queue), record);
+}
+
+void VirtualHost::removeQueueLog(const std::string& queue) {
+    if (data_dir_.empty()) return;
+    std::remove(queueLogPath(data_dir_, queue).c_str());
+}
+
+void VirtualHost::recoverQueueMessages(const std::string& queue) {
+    if (data_dir_.empty()) return;
+    std::ifstream in(queueLogPath(data_dir_, queue), std::ios::binary);
+    if (!in.is_open()) return;
+    std::string data((std::istreambuf_iterator<char>(in)),
+                     std::istreambuf_iterator<char>());
+    size_t pos = 0;
+    std::vector<uint64_t> order;
+    std::map<uint64_t, Message> by_id;
+    while (pos + 1 <= data.size()) {
+        const uint8_t type = static_cast<uint8_t>(data[pos++]);
+        if (type == 1) {
+            if (pos + 8 > data.size()) break;
+            uint64_t id = 0;
+            for (int i = 0; i < 8; ++i) {
+                id = (id << 8) | static_cast<uint8_t>(data[pos++]);
+            }
+            if (pos + 4 > data.size()) break;
+            uint32_t body_len = 0;
+            for (int i = 0; i < 4; ++i) {
+                body_len =
+                    (body_len << 8) | static_cast<uint8_t>(data[pos++]);
+            }
+            if (pos + body_len > data.size()) break;
+            Message message;
+            message.id = id;
+            message.body.assign(data.data() + pos, body_len);
+            pos += body_len;
+
+            auto read_string = [&](std::string& out) {
+                if (pos + 2 > data.size()) return false;
+                const uint16_t len =
+                    (static_cast<uint16_t>(
+                         static_cast<uint8_t>(data[pos]))
+                     << 8) |
+                    static_cast<uint16_t>(
+                        static_cast<uint8_t>(data[pos + 1]));
+                pos += 2;
+                if (pos + len > data.size()) return false;
+                out.assign(data.data() + pos, len);
+                pos += len;
+                return true;
+            };
+            if (!read_string(message.exchange) ||
+                !read_string(message.routing_key)) {
+                break;
+            }
+            if (pos + 8 + 4 + 4 > data.size()) break;
+            message.expire_at_ms = 0;
+            for (int i = 0; i < 8; ++i) {
+                message.expire_at_ms =
+                    (message.expire_at_ms << 8) |
+                    static_cast<uint8_t>(data[pos++]);
+            }
+            uint32_t ttl = 0;
+            uint32_t dlc = 0;
+            for (int i = 0; i < 4; ++i) {
+                ttl = (ttl << 8) | static_cast<uint8_t>(data[pos++]);
+            }
+            for (int i = 0; i < 4; ++i) {
+                dlc = (dlc << 8) | static_cast<uint8_t>(data[pos++]);
+            }
+            message.ttl_ms = ttl;
+            message.dead_letter_count = dlc;
+            message.persistent = true;
+            order.push_back(id);
+            by_id[id] = std::move(message);
+            if (id >= next_message_id_) next_message_id_ = id + 1;
+        } else if (type == 2) {
+            if (pos + 8 > data.size()) break;
+            uint64_t id = 0;
+            for (int i = 0; i < 8; ++i) {
+                id = (id << 8) | static_cast<uint8_t>(data[pos++]);
+            }
+            by_id.erase(id);
+        } else {
+            break;
+        }
+    }
+    auto& messages = queues_[queue].messages;
+    for (const uint64_t id : order) {
+        const auto it = by_id.find(id);
+        if (it != by_id.end()) {
+            messages.push_back(it->second);
+        }
     }
 }
 
@@ -409,6 +573,7 @@ BrokerResult VirtualHost::deleteQueue(const std::string& name, bool if_unused,
     }
     consumers_.erase(name);
     consumer_round_robin_.erase(name);
+    if (it->second.spec.durable) removeQueueLog(name);
     queues_.erase(it);
     removeQueueRow(name);
     removeBindingsForQueue(name);
@@ -431,6 +596,7 @@ BrokerResult VirtualHost::purgeQueue(const std::string& name) {
         return BrokerResult{false, kNotFound, "queue not found", 0};
     }
     expireMessages(name);
+    if (it->second.spec.durable) removeQueueLog(name);
     const uint32_t removed =
         static_cast<uint32_t>(it->second.messages.size());
     it->second.messages.clear();
@@ -463,6 +629,9 @@ BrokerResult VirtualHost::publish(const std::string& exchange,
         }
         if (deadline != 0) {
             copy.expire_at_ms = deadline;
+        }
+        if (copy.persistent) {
+            appendMessageLog(queue, copy);
         }
         it->second.messages.push_back(copy);
         ++count;
@@ -622,6 +791,13 @@ BrokerResult VirtualHost::ackMessage(uint64_t message_id) {
     }
     UnackedEntry entry = std::move(it->second);
     unacked_.erase(it);
+    if (entry.message.persistent) {
+        const auto queue_it = queues_.find(entry.queue);
+        if (queue_it != queues_.end() &&
+            queue_it->second.spec.durable) {
+            appendTombstoneLog(entry.queue, message_id);
+        }
+    }
     if (!entry.consumer_tag.empty()) {
         const auto consumers_it = consumers_.find(entry.queue);
         if (consumers_it != consumers_.end()) {
@@ -651,6 +827,10 @@ BrokerResult VirtualHost::getMessage(const std::string& queue, bool no_ack,
 
     *message = queue_it->second.messages.front();
     queue_it->second.messages.pop_front();
+    if (no_ack && message->persistent &&
+        queue_it->second.spec.durable) {
+        appendTombstoneLog(queue, message->id);
+    }
     if (has_message != nullptr) *has_message = true;
     if (remaining != nullptr) {
         *remaining =
@@ -687,6 +867,13 @@ BrokerResult VirtualHost::rejectMessage(uint64_t message_id, bool requeue) {
         queues_[entry.queue].messages.push_front(entry.message);
         deliverPending(entry.queue);
     } else {
+        if (entry.message.persistent) {
+            const auto queue_it = queues_.find(entry.queue);
+            if (queue_it != queues_.end() &&
+                queue_it->second.spec.durable) {
+                appendTombstoneLog(entry.queue, message_id);
+            }
+        }
         deadLetter(entry.queue, entry.message);
     }
     deliverPending(entry.queue);
@@ -837,6 +1024,9 @@ void VirtualHost::deliverPending(const std::string& queue) {
             unacked_[message.id] =
                 UnackedEntry{queue, message, entry.owner,
                              entry.consumer_tag};
+        } else if (message.persistent &&
+                   queue_it->second.spec.durable) {
+            appendTombstoneLog(queue, message.id);
         }
         if (entry.deliver) {
             entry.deliver(entry.consumer_tag, queue, message);

@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <thread>
 
 namespace mq::broker {
@@ -511,8 +512,97 @@ TEST(VirtualHostTest, PersistsMetadataAcrossRestart) {
         EXPECT_EQ(host.deadLetterExchange("q1"), "dlx");
     }
 
-    std::remove((dir + "/meta.db").c_str());
-    std::remove(created);
+    std::filesystem::remove_all(dir);
+}
+
+TEST(VirtualHostTest, PersistsDurableMessagesAcrossRestart) {
+    char template_dir[] = "/tmp/mq-msg-XXXXXX";
+    char* created = mkdtemp(template_dir);
+    ASSERT_NE(created, nullptr);
+    const std::string dir = created;
+
+    uint64_t first_id = 0;
+    {
+        VirtualHost host(dir);
+        QueueSpec queue;
+        queue.name = "q1";
+        queue.durable = true;
+        ASSERT_TRUE(host.declareQueue(queue).ok);
+
+        Message first;
+        first.body = "one";
+        first.persistent = true;
+        ASSERT_TRUE(host.publish("", "q1", first).ok);
+
+        Message second;
+        second.body = "two";
+        second.persistent = true;
+        ASSERT_TRUE(host.publish("", "q1", second).ok);
+
+        Message pulled;
+        bool has = false;
+        uint32_t remaining = 0;
+        ASSERT_TRUE(host.getMessage("q1", true, this, &pulled, &has,
+                                    &remaining)
+                        .ok);
+        ASSERT_TRUE(has);
+        first_id = pulled.id;
+    }
+
+    {
+        VirtualHost host(dir);
+        ASSERT_TRUE(host.hasQueue("q1"));
+        EXPECT_EQ(host.messageCount("q1"), 1U);
+        Message pulled;
+        bool has = false;
+        uint32_t remaining = 0;
+        ASSERT_TRUE(host.getMessage("q1", true, this, &pulled, &has,
+                                    &remaining)
+                        .ok);
+        ASSERT_TRUE(has);
+        EXPECT_EQ(pulled.body, "two");
+        EXPECT_NE(pulled.id, first_id);
+    }
+
+    std::filesystem::remove_all(dir);
+}
+
+TEST(VirtualHostTest, AckedMessageDoesNotReappearAfterRestart) {
+    char template_dir[] = "/tmp/mq-ack-XXXXXX";
+    char* created = mkdtemp(template_dir);
+    ASSERT_NE(created, nullptr);
+    const std::string dir = created;
+
+    uint64_t message_id = 0;
+    {
+        VirtualHost host(dir);
+        QueueSpec queue;
+        queue.name = "q1";
+        queue.durable = true;
+        ASSERT_TRUE(host.declareQueue(queue).ok);
+
+        Message message;
+        message.body = "acked";
+        message.persistent = true;
+        ASSERT_TRUE(host.publish("", "q1", message).ok);
+
+        Message pulled;
+        bool has = false;
+        uint32_t remaining = 0;
+        ASSERT_TRUE(host.getMessage("q1", false, this, &pulled, &has,
+                                    &remaining)
+                        .ok);
+        ASSERT_TRUE(has);
+        message_id = pulled.id;
+        ASSERT_TRUE(host.ackMessage(message_id).ok);
+    }
+
+    {
+        VirtualHost host(dir);
+        EXPECT_EQ(host.messageCount("q1"), 0U);
+    }
+
+    std::filesystem::remove_all(dir);
 }
 
 }  // namespace mq::broker
