@@ -251,6 +251,39 @@ TEST(VirtualHostTest, RejectRequeuesAndMarksRedelivered) {
     EXPECT_EQ(host.unackedCount(), 1U);
 }
 
+TEST(VirtualHostTest, RejectWithoutRequeueDeadLetters) {
+    VirtualHost host;
+    ASSERT_TRUE(host.declareExchange(
+                    ExchangeSpec{"dlx", "direct", false, false, false})
+                    .ok);
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"dlq", false, false, false}).ok);
+    ASSERT_TRUE(host.bind("dlx", "dlq", "dead.rk").ok);
+
+    QueueSpec source_spec;
+    source_spec.name = "q1";
+    source_spec.dead_letter_exchange = "dlx";
+    source_spec.dead_letter_routing_key = "dead.rk";
+    ASSERT_TRUE(host.declareQueue(source_spec).ok);
+    EXPECT_EQ(host.deadLetterExchange("q1"), "dlx");
+
+    std::vector<uint64_t> delivered_ids;
+    ASSERT_TRUE(host
+                    .registerConsumer(
+                        "q1", "c1", this,
+                        [&](const std::string&, const std::string&,
+                            const Message& message) {
+                            delivered_ids.push_back(message.id);
+                        })
+                    .ok);
+    ASSERT_TRUE(host.publish("", "q1", Message{"bad", false}).ok);
+    ASSERT_EQ(delivered_ids.size(), 1U);
+    EXPECT_EQ(host.unackedCount(), 1U);
+
+    ASSERT_TRUE(host.rejectMessage(delivered_ids[0], false).ok);
+    EXPECT_EQ(host.unackedCount(), 0U);
+    EXPECT_EQ(host.messageCount("dlq"), 1U);
+}
+
 }  // namespace mq::broker
 
 int main(int argc, char** argv) {

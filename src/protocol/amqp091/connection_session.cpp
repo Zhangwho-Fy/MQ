@@ -241,6 +241,16 @@ SessionResult ConnectionSession::handleQueueMethod(
         spec.durable = declare.durable;
         spec.exclusive = declare.exclusive;
         spec.auto_delete = declare.auto_delete;
+        if (const std::string* dlx =
+                declare.arguments.findString("x-dead-letter-exchange");
+            dlx != nullptr) {
+            spec.dead_letter_exchange = *dlx;
+        }
+        if (const std::string* dlx_rk =
+                declare.arguments.findString("x-dead-letter-routing-key");
+            dlx_rk != nullptr) {
+            spec.dead_letter_routing_key = *dlx_rk;
+        }
         const broker::BrokerResult result =
             virtual_host_->declareQueue(spec);
         if (!result.ok) {

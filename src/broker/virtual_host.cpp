@@ -120,7 +120,10 @@ BrokerResult VirtualHost::declareQueue(const QueueSpec& spec) {
         const QueueSpec& existing = it->second.spec;
         if (existing.durable != spec.durable ||
             existing.exclusive != spec.exclusive ||
-            existing.auto_delete != spec.auto_delete) {
+            existing.auto_delete != spec.auto_delete ||
+            existing.dead_letter_exchange != spec.dead_letter_exchange ||
+            existing.dead_letter_routing_key !=
+                spec.dead_letter_routing_key) {
             return BrokerResult{false, kPreconditionFailed,
                                 "inequivalent queue declaration", 0};
         }
@@ -307,6 +310,8 @@ BrokerResult VirtualHost::rejectMessage(uint64_t message_id, bool requeue) {
         entry.message.redelivered = true;
         queues_[entry.queue].messages.push_front(entry.message);
         deliverPending(entry.queue);
+    } else {
+        deadLetter(entry.queue, entry.message);
     }
     return BrokerResult{};
 }
@@ -328,6 +333,28 @@ void VirtualHost::requeueUnacked(void* owner) {
     for (const auto& entry : entries) {
         deliverPending(entry.queue);
     }
+}
+
+void VirtualHost::deadLetter(const std::string& source_queue,
+                             const Message& message) {
+    const auto queue_it = queues_.find(source_queue);
+    if (queue_it == queues_.end()) return;
+    const QueueSpec& spec = queue_it->second.spec;
+    if (spec.dead_letter_exchange.empty()) return;
+
+    Message copy = message;
+    copy.routing_key = spec.dead_letter_routing_key.empty()
+                           ? message.routing_key
+                           : spec.dead_letter_routing_key;
+    ++copy.dead_letter_count;
+    publish(spec.dead_letter_exchange, copy.routing_key, copy, nullptr);
+}
+
+std::string VirtualHost::deadLetterExchange(
+    const std::string& queue) const {
+    const auto it = queues_.find(queue);
+    return it == queues_.end() ? std::string{}
+                               : it->second.spec.dead_letter_exchange;
 }
 
 void VirtualHost::deliverPending(const std::string& queue) {

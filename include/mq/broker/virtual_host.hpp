@@ -32,6 +32,8 @@ struct QueueSpec {
     bool durable = false;
     bool exclusive = false;
     bool auto_delete = false;
+    std::string dead_letter_exchange;
+    std::string dead_letter_routing_key;
 };
 
 struct Message {
@@ -41,6 +43,7 @@ struct Message {
     std::string exchange;
     std::string routing_key;
     uint64_t id = 0;
+    uint32_t dead_letter_count = 0;
 };
 
 using ConsumerDeliver =
@@ -81,6 +84,7 @@ public:
     BrokerResult rejectMessage(uint64_t message_id, bool requeue);
     void requeueUnacked(void* owner);
     size_t unackedCount() const { return unacked_.size(); }
+    std::string deadLetterExchange(const std::string& queue) const;
 
     BrokerResult publish(const std::string& exchange,
                          const std::string& routing_key,
@@ -116,6 +120,7 @@ private:
     };
 
     void deliverPending(const std::string& queue);
+    void deadLetter(const std::string& source_queue, const Message& message);
 
     struct ExchangeEntry {
         ExchangeSpec spec;
