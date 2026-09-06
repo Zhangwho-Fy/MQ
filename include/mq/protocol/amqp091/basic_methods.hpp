@@ -80,6 +80,20 @@ struct BasicReject {
     bool requeue = false;
 };
 
+struct BasicGet {
+    uint16_t ticket = 0;
+    std::string queue;
+    bool no_ack = false;
+};
+
+struct BasicGetOk {
+    uint64_t delivery_tag = 0;
+    bool redelivered = false;
+    std::string exchange;
+    std::string routing_key;
+    uint32_t message_count = 0;
+};
+
 std::string encodeBasicPublish(const BasicPublish& publish);
 bool decodeBasicPublish(std::string_view arguments, BasicPublish& publish,
                         std::string& error);
@@ -110,6 +124,14 @@ bool decodeBasicAck(std::string_view arguments, BasicAck& ack,
 std::string encodeBasicReject(const BasicReject& reject);
 bool decodeBasicReject(std::string_view arguments, BasicReject& reject,
                        std::string& error);
+
+std::string encodeBasicGet(const BasicGet& get);
+bool decodeBasicGet(std::string_view arguments, BasicGet& get,
+                    std::string& error);
+
+std::string encodeBasicGetOk(const BasicGetOk& ok);
+bool decodeBasicGetOk(std::string_view arguments, BasicGetOk& ok,
+                      std::string& error);
 
 struct ContentHeaderInfo {
     uint16_t class_id = 0;

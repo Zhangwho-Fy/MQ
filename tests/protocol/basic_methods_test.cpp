@@ -100,6 +100,32 @@ TEST(BasicMethodsTest, AckAndRejectRoundTrip) {
     EXPECT_TRUE(decoded_reject.requeue);
 }
 
+TEST(BasicMethodsTest, GetRoundTrip) {
+    BasicGet get;
+    get.queue = "q1";
+    get.no_ack = true;
+    BasicGet decoded_get;
+    std::string error;
+    ASSERT_TRUE(decodeBasicGet(encodeBasicGet(get), decoded_get, error))
+        << error;
+    EXPECT_EQ(decoded_get.queue, "q1");
+    EXPECT_TRUE(decoded_get.no_ack);
+
+    BasicGetOk ok;
+    ok.delivery_tag = 5;
+    ok.redelivered = true;
+    ok.exchange = "logs";
+    ok.routing_key = "task";
+    ok.message_count = 9;
+    BasicGetOk decoded_ok;
+    ASSERT_TRUE(decodeBasicGetOk(encodeBasicGetOk(ok), decoded_ok, error))
+        << error;
+    EXPECT_EQ(decoded_ok.delivery_tag, 5U);
+    EXPECT_TRUE(decoded_ok.redelivered);
+    EXPECT_EQ(decoded_ok.exchange, "logs");
+    EXPECT_EQ(decoded_ok.message_count, 9U);
+}
+
 TEST(BasicMethodsTest, ContentHeaderRoundTrip) {
     const uint64_t body_size = 5;
     const std::string payload = encodeContentHeader(body_size);

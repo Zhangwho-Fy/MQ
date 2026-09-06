@@ -156,6 +156,14 @@ def basic_consume_args(queue: str) -> bytes:
     )
 
 
+def basic_get_args(queue: str) -> bytes:
+    return struct.pack(">H", 0) + shortstr(queue) + b"\x00"
+
+
+def basic_cancel_args(consumer_tag: str) -> bytes:
+    return shortstr(consumer_tag) + b"\x00"
+
+
 def basic_ack_args(delivery_tag: int) -> bytes:
     return struct.pack(">Q", delivery_tag) + b"\x00"
 
@@ -168,6 +176,10 @@ def read_delivery_tag(payload: bytes) -> int:
     tag_length = payload[4]
     offset = 5 + tag_length
     return struct.unpack(">Q", payload[offset:offset + 8])[0]
+
+
+def read_get_delivery_tag(payload: bytes) -> int:
+    return struct.unpack(">Q", payload[4:12])[0]
 
 
 def check_method(payload: bytes, expected_class: int, expected_method: int) -> None:
@@ -221,6 +233,8 @@ def main() -> int:
         sock.sendall(method(60, 20, basic_consume_args("q1"), channel=1))
         payload, channel = read_frame(sock)
         check_method(payload, 60, 21)  # basic.consume-ok
+        tag_length = payload[4]
+        consumer_tag = payload[5:5 + tag_length].decode()
 
         body = b"hello"
         sock.sendall(method(60, 40, basic_publish_args("", "q1"), channel=1))
@@ -267,6 +281,27 @@ def main() -> int:
         if frame_type != 3:
             raise AssertionError("expected redelivered content body")
         sock.sendall(method(60, 80, basic_ack_args(redelivered_tag), channel=1))
+
+        sock.sendall(method(60, 30, basic_cancel_args(consumer_tag), channel=1))
+        payload, channel = read_frame(sock)
+        check_method(payload, 60, 31)  # basic.cancel-ok
+
+        sock.sendall(method(60, 40, basic_publish_args("", "q1"), channel=1))
+        sock.sendall(frame(content_header(b"third"), channel=1, frame_type=2))
+        sock.sendall(frame(b"third", channel=1, frame_type=3))
+        sock.sendall(method(60, 70, basic_get_args("q1"), channel=1))
+        frame_type, payload, channel = read_raw_frame(sock)
+        if frame_type != 1:
+            raise AssertionError(f"expected basic.get-ok, got {frame_type}")
+        check_method(payload, 60, 71)  # basic.get-ok
+        get_tag = read_get_delivery_tag(payload)
+        frame_type, payload, channel = read_raw_frame(sock)
+        if frame_type != 2:
+            raise AssertionError("expected get content header")
+        frame_type, payload, channel = read_raw_frame(sock)
+        if frame_type != 3 or payload != b"third":
+            raise AssertionError("get body mismatch")
+        sock.sendall(method(60, 80, basic_ack_args(get_tag), channel=1))
 
         sock.sendall(method(50, 30, queue_purge_args("q1"), channel=1))
         payload, channel = read_frame(sock)

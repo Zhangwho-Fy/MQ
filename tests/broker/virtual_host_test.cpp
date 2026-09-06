@@ -313,6 +313,41 @@ TEST(VirtualHostTest, TtlExpiredMessagesDeadLetterOnPurge) {
     EXPECT_EQ(host.messageCount("dlq"), 1U);
 }
 
+TEST(VirtualHostTest, GetPullsMessageAndTracksUnacked) {
+    VirtualHost host;
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q1", false, false, false}).ok);
+    ASSERT_TRUE(host.publish("", "q1", Message{"one", false}).ok);
+    ASSERT_TRUE(host.publish("", "q1", Message{"two", false}).ok);
+
+    Message message;
+    bool has = false;
+    uint32_t remaining = 0;
+    const BrokerResult result =
+        host.getMessage("q1", false, this, &message, &has, &remaining);
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_TRUE(has);
+    EXPECT_EQ(message.body, "one");
+    EXPECT_EQ(remaining, 1U);
+    EXPECT_EQ(host.unackedCount(), 1U);
+
+    ASSERT_TRUE(host.ackMessage(message.id).ok);
+    EXPECT_EQ(host.unackedCount(), 0U);
+    EXPECT_EQ(host.messageCount("q1"), 1U);
+}
+
+TEST(VirtualHostTest, GetEmptyQueueReturnsNoMessage) {
+    VirtualHost host;
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q1", false, false, false}).ok);
+    Message message;
+    bool has = true;
+    uint32_t remaining = 0;
+    const BrokerResult result =
+        host.getMessage("q1", true, this, &message, &has, &remaining);
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_FALSE(has);
+    EXPECT_EQ(host.unackedCount(), 0U);
+}
+
 }  // namespace mq::broker
 
 int main(int argc, char** argv) {

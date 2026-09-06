@@ -102,6 +102,8 @@ private:
     void deliverToConsumer(const std::string& consumer_tag,
                            const std::string& queue,
                            const broker::Message& message);
+    void sendContent(uint16_t channel, const std::string& header_payload,
+                     const std::string& body);
     SessionResult handleConnectionMethod(const MethodHeader& header);
     SessionResult handleChannelMethod(uint16_t channel,
                                       const MethodHeader& header);

@@ -84,6 +84,9 @@ public:
     size_t consumerCount(const std::string& queue) const;
     BrokerResult ackMessage(uint64_t message_id);
     BrokerResult rejectMessage(uint64_t message_id, bool requeue);
+    BrokerResult getMessage(const std::string& queue, bool no_ack,
+                            void* owner, Message* message, bool* has_message,
+                            uint32_t* remaining);
     void requeueUnacked(void* owner);
     size_t unackedCount() const { return unacked_.size(); }
     std::string deadLetterExchange(const std::string& queue) const;

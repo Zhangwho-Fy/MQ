@@ -222,6 +222,51 @@ bool decodeBasicReject(std::string_view arguments, BasicReject& reject,
     return readBits(reader, {&reject.requeue});
 }
 
+std::string encodeBasicGet(const BasicGet& get) {
+    WireWriter writer;
+    writer.writeU16(get.ticket);
+    writeShortString(writer, get.queue);
+    writeBits(writer, {get.no_ack});
+    return writer.takeBytes();
+}
+
+bool decodeBasicGet(std::string_view arguments, BasicGet& get,
+                    std::string& error) {
+    WireReader reader(arguments);
+    if (!reader.readU16(get.ticket) ||
+        !readShortString(reader, get.queue)) {
+        error = "truncated basic.get";
+        return false;
+    }
+    return readBits(reader, {&get.no_ack});
+}
+
+std::string encodeBasicGetOk(const BasicGetOk& ok) {
+    WireWriter writer;
+    writer.writeU64(ok.delivery_tag);
+    writeBits(writer, {ok.redelivered});
+    writeShortString(writer, ok.exchange);
+    writeShortString(writer, ok.routing_key);
+    writer.writeU32(ok.message_count);
+    return writer.takeBytes();
+}
+
+bool decodeBasicGetOk(std::string_view arguments, BasicGetOk& ok,
+                      std::string& error) {
+    WireReader reader(arguments);
+    if (!reader.readU64(ok.delivery_tag)) {
+        error = "truncated basic.get-ok";
+        return false;
+    }
+    if (!readBits(reader, {&ok.redelivered})) {
+        error = "invalid basic.get-ok bits";
+        return false;
+    }
+    return readShortString(reader, ok.exchange) &&
+           readShortString(reader, ok.routing_key) &&
+           reader.readU32(ok.message_count);
+}
+
 std::string encodeContentHeader(uint64_t body_size) {
     WireWriter writer;
     writer.writeU16(kBasicClassId);

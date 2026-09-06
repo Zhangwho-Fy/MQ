@@ -700,6 +700,83 @@ TEST(ConnectionSessionTest, AckAndRejectControlDelivery) {
     EXPECT_EQ(host->unackedCount(), 0U);
 }
 
+TEST(ConnectionSessionTest, GetReturnsMessageAndEmpty) {
+    auto host = std::make_shared<broker::VirtualHost>();
+    std::vector<std::string> sent;
+    ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    }, host);
+    establishReady(session, sent);
+    ASSERT_TRUE(host->declareQueue(
+                    broker::QueueSpec{"q1", false, false, false})
+                    .ok);
+    ASSERT_TRUE(host->publish("", "q1", broker::Message{"one", false}).ok);
+    ASSERT_TRUE(host->publish("", "q1", broker::Message{"two", false}).ok);
+
+    const uint16_t channel = 1;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Open),
+                        encodeChannelOpen(ChannelOpen{}), channel))
+                    .ok);
+
+    BasicGet get;
+    get.queue = "q1";
+    const size_t before_first = sent.size();
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kBasicClassId,
+                        static_cast<uint16_t>(BasicMethodId::Get),
+                        encodeBasicGet(get), channel))
+                    .ok);
+    ASSERT_EQ(sent.size(), before_first + 3U);
+    MethodHeader header;
+    std::string error;
+    ASSERT_TRUE(decodeCapturedMethod(sent[before_first], header, error))
+        << error;
+    EXPECT_EQ(header.method_id,
+              static_cast<uint16_t>(BasicMethodId::GetOk));
+    BasicGetOk ok;
+    ASSERT_TRUE(decodeBasicGetOk(header.arguments, ok, error)) << error;
+    EXPECT_EQ(ok.message_count, 1U);
+    EXPECT_EQ(host->unackedCount(), 1U);
+
+    BasicAck ack;
+    ack.delivery_tag = ok.delivery_tag;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kBasicClassId,
+                        static_cast<uint16_t>(BasicMethodId::Ack),
+                        encodeBasicAck(ack), channel))
+                    .ok);
+    EXPECT_EQ(host->unackedCount(), 0U);
+
+    const size_t before_second = sent.size();
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kBasicClassId,
+                        static_cast<uint16_t>(BasicMethodId::Get),
+                        encodeBasicGet(get), channel))
+                    .ok);
+    ASSERT_TRUE(decodeCapturedMethod(sent[before_second], header, error))
+        << error;
+    EXPECT_EQ(header.method_id,
+              static_cast<uint16_t>(BasicMethodId::GetOk));
+
+    const size_t before_empty = sent.size();
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kBasicClassId,
+                        static_cast<uint16_t>(BasicMethodId::Get),
+                        encodeBasicGet(get), channel))
+                    .ok);
+    ASSERT_TRUE(decodeCapturedMethod(sent[before_empty], header, error))
+        << error;
+    EXPECT_EQ(header.method_id,
+              static_cast<uint16_t>(BasicMethodId::GetEmpty));
+}
+
 }  // namespace mq::amqp091
 
 int main(int argc, char** argv) {

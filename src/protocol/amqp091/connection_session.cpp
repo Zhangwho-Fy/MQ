@@ -543,9 +543,71 @@ SessionResult ConnectionSession::handleBasicMethod(
         return SessionResult{};
     }
 
+    if (method == BasicMethodId::Get) {
+        BasicGet get;
+        std::string error;
+        if (!decodeBasicGet(header.arguments, get, error)) {
+            return sendChannelError(channel, 502, kBasicClassId,
+                                    static_cast<uint16_t>(method),
+                                    "invalid basic.get");
+        }
+        if (!virtual_host_->hasQueue(get.queue)) {
+            return sendChannelError(channel, 404, kBasicClassId,
+                                    static_cast<uint16_t>(method),
+                                    "queue not found");
+        }
+
+        broker::Message message;
+        bool has_message = false;
+        uint32_t remaining = 0;
+        const broker::BrokerResult result = virtual_host_->getMessage(
+            get.queue, get.no_ack, this, &message, &has_message, &remaining);
+        if (!result.ok) {
+            return sendChannelError(channel, result.reply_code, kBasicClassId,
+                                    static_cast<uint16_t>(method),
+                                    result.error);
+        }
+        if (!has_message) {
+            return sendMethodOnChannel(
+                channel, kBasicClassId,
+                static_cast<uint16_t>(BasicMethodId::GetEmpty), "");
+        }
+
+        const uint64_t delivery_tag = ++delivery_seq_[channel];
+        delivery_tag_to_message_[channel][delivery_tag] = message.id;
+        BasicGetOk ok;
+        ok.delivery_tag = delivery_tag;
+        ok.redelivered = message.redelivered;
+        ok.exchange = message.exchange;
+        ok.routing_key = message.routing_key;
+        ok.message_count = remaining;
+        const SessionResult sent = sendMethodOnChannel(
+            channel, kBasicClassId,
+            static_cast<uint16_t>(BasicMethodId::GetOk),
+            encodeBasicGetOk(ok));
+        if (!sent.ok) return sent;
+        sendContent(channel, encodeContentHeader(message.body.size()),
+                    message.body);
+        return SessionResult{};
+    }
+
     return sendChannelError(channel, 540, kBasicClassId,
                             static_cast<uint16_t>(method),
                             "basic method not implemented");
+}
+
+void ConnectionSession::sendContent(uint16_t channel,
+                                    const std::string& header_payload,
+                                    const std::string& body) {
+    sendFrame(kFrameHeader, channel, header_payload);
+    const size_t max_body = frame_max_ > 8 ? frame_max_ - 8 : 0;
+    size_t offset = 0;
+    while (offset < body.size()) {
+        const size_t count = std::min(max_body, body.size() - offset);
+        sendFrame(kFrameBody, channel,
+                  std::string_view(body).substr(offset, count));
+        offset += count;
+    }
 }
 
 void ConnectionSession::deliverToConsumer(
@@ -566,16 +628,8 @@ void ConnectionSession::deliverToConsumer(
         channel, kBasicClassId,
         static_cast<uint16_t>(BasicMethodId::Deliver),
         encodeBasicDeliver(deliver));
-    sendFrame(kFrameHeader, channel,
-              encodeContentHeader(message.body.size()));
-    const size_t max_body = frame_max_ > 8 ? frame_max_ - 8 : 0;
-    size_t offset = 0;
-    while (offset < message.body.size()) {
-        const size_t count = std::min(max_body, message.body.size() - offset);
-        sendFrame(kFrameBody, channel,
-                  std::string_view(message.body).substr(offset, count));
-        offset += count;
-    }
+    sendContent(channel, encodeContentHeader(message.body.size()),
+                message.body);
 }
 
 SessionResult ConnectionSession::handleContentFrame(uint16_t channel,

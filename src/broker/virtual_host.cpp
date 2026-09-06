@@ -312,6 +312,32 @@ BrokerResult VirtualHost::ackMessage(uint64_t message_id) {
     return BrokerResult{};
 }
 
+BrokerResult VirtualHost::getMessage(const std::string& queue, bool no_ack,
+                                     void* owner, Message* message,
+                                     bool* has_message, uint32_t* remaining) {
+    const auto queue_it = queues_.find(queue);
+    if (queue_it == queues_.end()) {
+        return BrokerResult{false, kNotFound, "queue not found", 0};
+    }
+    expireMessages(queue);
+    if (has_message != nullptr) *has_message = false;
+    if (remaining != nullptr) *remaining = 0;
+    if (queue_it->second.messages.empty()) return BrokerResult{};
+
+    *message = queue_it->second.messages.front();
+    queue_it->second.messages.pop_front();
+    if (has_message != nullptr) *has_message = true;
+    if (remaining != nullptr) {
+        *remaining =
+            static_cast<uint32_t>(queue_it->second.messages.size());
+    }
+    if (!no_ack) {
+        unacked_[message->id] =
+            UnackedEntry{queue, *message, owner};
+    }
+    return BrokerResult{};
+}
+
 BrokerResult VirtualHost::rejectMessage(uint64_t message_id, bool requeue) {
     const auto it = unacked_.find(message_id);
     if (it == unacked_.end()) {
