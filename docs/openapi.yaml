@@ -17,6 +17,9 @@ servers:
   - url: http://localhost:15672
     description: 本地管理服务
 
+security:
+  - basicAuth: []
+
 tags:
   - name: Overview
     description: 服务器概况
@@ -28,6 +31,8 @@ tags:
 paths:
   /api/overview:
     get:
+      parameters:
+        - $ref: "#/components/parameters/VirtualHostHeader"
       tags: [Overview]
       operationId: getOverview
       summary: 获取服务器概况
@@ -39,9 +44,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Overview"
+        "400":
+          $ref: "#/components/responses/Unauthorized"
 
   /api/exchanges:
     get:
+      parameters:
+        - $ref: "#/components/parameters/VirtualHostHeader"
       tags: [Exchanges]
       operationId: listExchanges
       summary: 获取交换机列表
@@ -54,9 +63,13 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ExchangeInfo"
+        "400":
+          $ref: "#/components/responses/Unauthorized"
 
   /api/queues:
     get:
+      parameters:
+        - $ref: "#/components/parameters/VirtualHostHeader"
       tags: [Queues]
       operationId: listQueues
       summary: 获取队列列表
@@ -70,6 +83,8 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/QueueInfo"
+        "400":
+          $ref: "#/components/responses/Unauthorized"
 
   /api/queues/{queue}:
     parameters:
@@ -79,6 +94,7 @@ paths:
         schema:
           type: string
         description: 队列名称
+      - $ref: "#/components/parameters/VirtualHostHeader"
     get:
       tags: [Queues]
       operationId: getQueue
@@ -92,6 +108,8 @@ paths:
                 $ref: "#/components/schemas/QueueInfo"
         "404":
           $ref: "#/components/responses/NotFound"
+        "400":
+          $ref: "#/components/responses/Unauthorized"
     delete:
       tags: [Queues]
       operationId: deleteQueue
@@ -109,9 +127,33 @@ paths:
                     example: true
         "404":
           $ref: "#/components/responses/NotFound"
+        "400":
+          $ref: "#/components/responses/Unauthorized"
 
 components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+      description: 使用 MQ 用户/密码，例如 guest/guest
+
+  parameters:
+    VirtualHostHeader:
+      name: X-Virtual-Host
+      in: header
+      required: false
+      schema:
+        type: string
+      description: 要访问的 vhost，缺省为 /
+      example: /alice
+
   responses:
+    Unauthorized:
+      description: 缺少凭据或认证失败
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     NotFound:
       description: 资源不存在
       content:

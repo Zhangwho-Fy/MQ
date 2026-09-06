@@ -7,6 +7,7 @@
 #include "muduo/net/http/HttpResponse.h"
 
 #include <chrono>
+#include <map>
 #include <utility>
 
 namespace mq::transport {
@@ -26,6 +27,46 @@ std::string jsonEscape(const std::string& value) {
         }
     }
     return out;
+}
+
+std::string base64Decode(const std::string& input) {
+    static const std::string table =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    int buffer = 0;
+    int bits = 0;
+    for (char ch : input) {
+        if (ch == '=') break;
+        const size_t pos = table.find(ch);
+        if (pos == std::string::npos) continue;
+        buffer = (buffer << 6) | static_cast<int>(pos);
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out.push_back(static_cast<char>((buffer >> bits) & 0xff));
+        }
+    }
+    return out;
+}
+
+std::map<std::string, std::string> parseQuery(
+    const std::string& query) {
+    std::map<std::string, std::string> result;
+    size_t start = 0;
+    while (start <= query.size()) {
+        const size_t amp = query.find('&', start);
+        const std::string pair =
+            query.substr(start, amp == std::string::npos
+                                     ? std::string::npos
+                                     : amp - start);
+        const size_t eq = pair.find('=');
+        if (eq != std::string::npos) {
+            result[pair.substr(0, eq)] = pair.substr(eq + 1);
+        }
+        if (amp == std::string::npos) break;
+        start = amp + 1;
+    }
+    return result;
 }
 
 }  // namespace
@@ -202,9 +243,54 @@ void AmqpServer::onHttpRequest(const muduo::net::HttpRequest& request,
     response->setContentType("application/json");
     response->setStatusCode(muduo::net::HttpResponse::k200Ok);
     response->setStatusMessage("OK");
-    const std::string& path = request.path();
+    const std::string full_path = request.path();
+    const size_t question = full_path.find('?');
+    const std::string path =
+        question == std::string::npos
+            ? full_path
+            : full_path.substr(0, question);
+    std::string query_string =
+        request.query().empty() && question != std::string::npos
+            ? full_path.substr(question + 1)
+            : request.query();
+
+    const auto query = parseQuery(query_string);
+    const auto vhost_it = query.find("virtual_host");
+    const auto header_vhost = request.headers().find("X-Virtual-Host");
+    const std::string vhost_name =
+        header_vhost != request.headers().end()
+            ? header_vhost->second
+            : (vhost_it == query.end() ? "/" : vhost_it->second);
+    const auto auth_it = request.headers().find("Authorization");
+    if (auth_it == request.headers().end()) {
+        response->setStatusCode(muduo::net::HttpResponse::k400BadRequest);
+        response->setStatusMessage("Unauthorized");
+        response->setBody("{\"error\":\"missing authorization\"}");
+        return;
+    }
+    const std::string& header = auth_it->second;
+    const std::string token =
+        header.size() > 6 && header.compare(0, 6, "Basic ") == 0
+            ? header.substr(6)
+            : "";
+    const std::string decoded = base64Decode(token);
+    const size_t colon = decoded.find(':');
+    if (colon == std::string::npos ||
+        !broker_->authenticate(decoded.substr(0, colon),
+                                decoded.substr(colon + 1))) {
+        response->setStatusCode(muduo::net::HttpResponse::k400BadRequest);
+        response->setStatusMessage("Unauthorized");
+        response->setBody("{\"error\":\"unauthorized\"}");
+        return;
+    }
     const std::shared_ptr<broker::VirtualHost> vhost =
-        broker_->vhost("/");
+        broker_->resolveVhost(decoded.substr(0, colon), vhost_name);
+    if (!vhost) {
+        response->setStatusCode(muduo::net::HttpResponse::k404NotFound);
+        response->setStatusMessage("Not Found");
+        response->setBody("{\"error\":\"vhost not allowed\"}");
+        return;
+    }
 
     if (path == "/api/overview") {
         const auto queues = vhost->listQueues();
