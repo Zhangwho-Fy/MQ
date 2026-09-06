@@ -1,51 +1,73 @@
-# MQ：轻量级消息中间件
+# MQ：AMQP 0-9-1 轻量级消息中间件
 
-一个基于 C++17 实现的轻量级消息队列，兼容 AMQP 核心协议，支持消息持久化、多交换机类型、消费者确认等功能。
+基于 C++17 实现的 RabbitMQ 风格轻量消息队列，直接使用 AMQP 0-9-1 二进制协议，支持持久化、多交换机类型、消费者确认、DLX、TTL、QoS 和真实客户端互操作。
 
----
+## 核心能力
 
-## ✨ 核心特性
-- 🚀 **高性能**：基于 muduo 异步网络库，支持高并发连接与消息分发
-- 📦 **多交换机类型**：直连、扇形、主题交换机，支持路由键与通配符匹配
-- 💾 **持久化支持**：消息、队列、交换机信息写入 SQLite3，重启不丢失
-- ✅ **可靠投递**：消费者确认（ACK/NACK）、死信队列机制，保证消息不丢失
-- 🔌 **客户端 SDK**：提供 C++ 客户端，支持同步/异步消费模式
+- AMQP 0-9-1 帧、连接握手、信道协议
+- direct / fanout / topic 交换机与绑定
+- publish / consume / basic.get
+- ack / reject / requeue / redelivered
+- DLX 与队列级/消息级 TTL
+- heartbeat 超时
+- basic.qos prefetch
+- no-local、exclusive consumer
+- exclusive / auto-delete 队列生命周期
+- SQLite 元数据 + 队列消息日志持久化
+- pika 真实客户端互操作验证
 
----
+## 技术栈
 
-## 🛠️ 技术栈
-- **语言**：C++17
-- **网络库**：muduo
-- **序列化**：Protobuf
-- **存储**：SQLite3
-- **测试框架**：GoogleTest
+- C++17
+- muduo（网络）
+- SQLite3（元数据）
+- GoogleTest（测试）
+- pika（互操作冒烟）
 
----
+## 快速开始
 
-## 🚀 快速开始
+依赖：
 
-### 环境依赖
-- GCC 8+ / Clang 10+
-- CMake 3.16+
-- Protobuf 3.10+
-- SQLite3
-- muduo
-
-### 构建与运行
 ```bash
-# 克隆仓库
-git clone git@github.com:Zhangwho-Fy/MQ.git
-cd MQ
-
-# 构建项目
-mkdir build && cd build
-cmake ..
-make -j4
-
-# 启动服务端
-./bin/mqserver
-
-# 运行测试客户端（新终端）
-./bin/consume_client
-./bin/produce_client
+sudo apt-get install -y cmake g++ libboost-dev libprotobuf-dev protobuf-compiler libsqlite3-dev libgtest-dev
 ```
+
+构建：
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build -j4
+```
+
+运行：
+
+```bash
+./build/amqp_server -p 5672 --data ./data
+```
+
+pika 互操作冒烟：
+
+```bash
+python3 tools/pika_interop_smoke.py --port 5672
+```
+
+测试：
+
+```bash
+ctest --test-dir build --output-on-failure
+```
+
+## 目录
+
+```text
+include/mq/    broker/protocol/transport 头文件
+src/           实现
+tests/         单元与协议测试
+tools/         AMQP raw/pika 冒烟客户端
+common/        公共日志
+mqthird/       muduo 静态库
+```
+
+## 说明
+
+默认账号为 `guest/guest`，virtual host 为 `/`。当前目标是功能完整的轻量 AMQP 服务器，适合学习和内部试用，尚未覆盖事务、publisher confirm、headers 交换机、多 vhost 与生产级运维能力。

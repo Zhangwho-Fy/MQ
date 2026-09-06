@@ -7,7 +7,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(MQ_BUILD_TESTS "Build unit and protocol tests" ON)
-option(MQ_BUILD_LEGACY "Build the legacy Protobuf broker under legacy/" OFF)
 
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
@@ -84,46 +83,6 @@ target_link_libraries(amqp_server PRIVATE
     mq_muduo
 )
 
-if(MQ_BUILD_LEGACY)
-    find_package(Protobuf 3.10 REQUIRED)
-    find_package(SQLite3 REQUIRED)
-
-    protobuf_generate_cpp(MQ_PROTO_SRCS MQ_PROTO_HDRS
-        "${CMAKE_CURRENT_SOURCE_DIR}/legacy/mqcommon/mq_msg.proto"
-        "${CMAKE_CURRENT_SOURCE_DIR}/legacy/mqcommon/mq_proto.proto"
-    )
-    add_library(mqcommon_proto STATIC ${MQ_PROTO_SRCS} ${MQ_PROTO_HDRS})
-    target_link_libraries(mqcommon_proto PUBLIC protobuf::libprotobuf)
-    target_include_directories(mqcommon_proto PUBLIC
-        "${CMAKE_CURRENT_SOURCE_DIR}"
-        "${CMAKE_CURRENT_BINARY_DIR}"
-    )
-    target_link_libraries(mqcommon_proto PRIVATE mq_compile_options)
-
-    add_executable(mqserver
-        legacy/mqserver/mq_server.cc
-        "${MQ_THIRD_INCLUDE_DIR}/muduo/proto/codec.cc"
-    )
-    target_link_libraries(mqserver PRIVATE
-        mq_compile_options
-        mqcommon_proto
-        mq_muduo
-        SQLite::SQLite3
-    )
-
-    foreach(client_target IN ITEMS publish_client consume_client)
-        add_executable(${client_target}
-            "legacy/mqclient/${client_target}.cc"
-            "${MQ_THIRD_INCLUDE_DIR}/muduo/proto/codec.cc"
-        )
-        target_link_libraries(${client_target} PRIVATE
-            mq_compile_options
-            mqcommon_proto
-            mq_muduo
-        )
-    endforeach()
-endif()
-
 if(MQ_BUILD_TESTS)
     enable_testing()
     find_package(GTest QUIET)
@@ -189,37 +148,6 @@ if(MQ_BUILD_TESTS)
         target_compile_features(virtual_host_test PRIVATE cxx_std_17)
         add_test(NAME virtual_host_test COMMAND virtual_host_test)
 
-        if(MQ_BUILD_LEGACY)
-            set(MQ_GTEST_SOURCES
-                mq_bindingtest
-                mq_consumertest
-                mq_exchangetest
-                mq_hosttest
-                mq_msgtest
-                mq_queuetest
-                mq_routetest
-            )
-            foreach(test_target IN LISTS MQ_GTEST_SOURCES)
-                add_executable(${test_target}
-                    "legacy/mqtest/${test_target}.cpp")
-                target_link_libraries(${test_target} PRIVATE
-                    mq_compile_options
-                    mqcommon_proto
-                    mq_muduo
-                    SQLite::SQLite3
-                    GTest::gtest
-                )
-                add_test(NAME ${test_target} COMMAND ${test_target})
-            endforeach()
-
-            add_executable(mq_filetest legacy/mqtest/mq_filetest.cpp)
-            target_link_libraries(mq_filetest PRIVATE mq_compile_options)
-            add_test(NAME mq_filetest COMMAND mq_filetest)
-            set_tests_properties(${MQ_GTEST_SOURCES} mq_filetest PROPERTIES
-                WORKING_DIRECTORY
-                    "${CMAKE_CURRENT_SOURCE_DIR}/legacy/mqtest"
-            )
-        endif()
     else()
         message(WARNING "GTest was not found; protocol tests are skipped")
     endif()
