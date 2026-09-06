@@ -1,6 +1,8 @@
 #ifndef MQ_PROTOCOL_AMQP091_BASIC_METHODS_HPP
 #define MQ_PROTOCOL_AMQP091_BASIC_METHODS_HPP
 
+#include "fields.hpp"
+
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -44,12 +46,69 @@ struct BasicReturn {
     std::string routing_key;
 };
 
+struct BasicConsume {
+    uint16_t ticket = 0;
+    std::string queue;
+    std::string consumer_tag;
+    bool no_local = false;
+    bool no_ack = false;
+    bool exclusive = false;
+    bool no_wait = false;
+    FieldTable arguments;
+};
+
+struct BasicCancel {
+    std::string consumer_tag;
+    bool no_wait = false;
+};
+
+struct BasicDeliver {
+    std::string consumer_tag;
+    uint64_t delivery_tag = 0;
+    bool redelivered = false;
+    std::string exchange;
+    std::string routing_key;
+};
+
+struct BasicAck {
+    uint64_t delivery_tag = 0;
+    bool multiple = false;
+};
+
+struct BasicReject {
+    uint64_t delivery_tag = 0;
+    bool requeue = false;
+};
+
 std::string encodeBasicPublish(const BasicPublish& publish);
 bool decodeBasicPublish(std::string_view arguments, BasicPublish& publish,
                         std::string& error);
 
 std::string encodeBasicReturn(const BasicReturn& ret);
 bool decodeBasicReturn(std::string_view arguments, BasicReturn& ret,
+                       std::string& error);
+
+std::string encodeBasicConsume(const BasicConsume& consume);
+bool decodeBasicConsume(std::string_view arguments, BasicConsume& consume,
+                        std::string& error);
+
+std::string encodeBasicCancel(const BasicCancel& cancel);
+bool decodeBasicCancel(std::string_view arguments, BasicCancel& cancel,
+                       std::string& error);
+
+std::string encodeBasicDeliver(const BasicDeliver& deliver);
+bool decodeBasicDeliver(std::string_view arguments, BasicDeliver& deliver,
+                        std::string& error);
+
+std::string encodeBasicConsumeOk(const std::string& consumer_tag);
+std::string encodeBasicCancelOk(const std::string& consumer_tag);
+
+std::string encodeBasicAck(const BasicAck& ack);
+bool decodeBasicAck(std::string_view arguments, BasicAck& ack,
+                    std::string& error);
+
+std::string encodeBasicReject(const BasicReject& reject);
+bool decodeBasicReject(std::string_view arguments, BasicReject& reject,
                        std::string& error);
 
 struct ContentHeaderInfo {

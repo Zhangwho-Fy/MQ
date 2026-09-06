@@ -37,6 +37,69 @@ TEST(BasicMethodsTest, ReturnRoundTrip) {
     EXPECT_EQ(decoded.routing_key, "missing");
 }
 
+TEST(BasicMethodsTest, ConsumeCancelDeliverRoundTrip) {
+    BasicConsume consume;
+    consume.queue = "q1";
+    consume.consumer_tag = "c1";
+    consume.no_ack = true;
+    consume.no_wait = false;
+
+    BasicConsume decoded_consume;
+    std::string error;
+    ASSERT_TRUE(
+        decodeBasicConsume(encodeBasicConsume(consume), decoded_consume, error))
+        << error;
+    EXPECT_EQ(decoded_consume.queue, "q1");
+    EXPECT_EQ(decoded_consume.consumer_tag, "c1");
+    EXPECT_TRUE(decoded_consume.no_ack);
+    EXPECT_EQ(encodeBasicConsumeOk("c1"), std::string("\x02""c1", 3));
+
+    BasicCancel cancel;
+    cancel.consumer_tag = "c1";
+    BasicCancel decoded_cancel;
+    ASSERT_TRUE(decodeBasicCancel(encodeBasicCancel(cancel), decoded_cancel,
+                                  error))
+        << error;
+    EXPECT_EQ(decoded_cancel.consumer_tag, "c1");
+    EXPECT_EQ(encodeBasicCancelOk("c1"),
+              std::string("\x02""c1", 3));
+
+    BasicDeliver deliver;
+    deliver.consumer_tag = "c1";
+    deliver.delivery_tag = 7;
+    deliver.exchange = "logs";
+    deliver.routing_key = "task";
+    BasicDeliver decoded_deliver;
+    ASSERT_TRUE(decodeBasicDeliver(encodeBasicDeliver(deliver),
+                                   decoded_deliver, error))
+        << error;
+    EXPECT_EQ(decoded_deliver.delivery_tag, 7U);
+    EXPECT_EQ(decoded_deliver.exchange, "logs");
+    EXPECT_EQ(decoded_deliver.routing_key, "task");
+}
+
+TEST(BasicMethodsTest, AckAndRejectRoundTrip) {
+    BasicAck ack;
+    ack.delivery_tag = 12;
+    ack.multiple = true;
+    BasicAck decoded_ack;
+    std::string error;
+    ASSERT_TRUE(decodeBasicAck(encodeBasicAck(ack), decoded_ack, error))
+        << error;
+    EXPECT_EQ(decoded_ack.delivery_tag, 12U);
+    EXPECT_TRUE(decoded_ack.multiple);
+
+    BasicReject reject;
+    reject.delivery_tag = 12;
+    reject.requeue = true;
+    BasicReject decoded_reject;
+    ASSERT_TRUE(decodeBasicReject(encodeBasicReject(reject), decoded_reject,
+                                  error))
+        << error;
+    EXPECT_EQ(decoded_reject.delivery_tag, 12U);
+    EXPECT_TRUE(decoded_reject.requeue);
+}
+
 TEST(BasicMethodsTest, ContentHeaderRoundTrip) {
     const uint64_t body_size = 5;
     const std::string payload = encodeContentHeader(body_size);

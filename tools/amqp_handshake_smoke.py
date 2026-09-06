@@ -30,15 +30,20 @@ def method(class_id: int, method_id: int, args: bytes, channel: int = 0) -> byte
 
 
 def read_frame(sock: socket.socket) -> bytes:
-    header = recv_exact(sock, 7)
-    frame_type, channel, size = struct.unpack(">BHI", header)
+    frame_type, payload, channel = read_raw_frame(sock)
     if frame_type != FRAME_METHOD:
         raise AssertionError(f"expected method frame, got {frame_type}")
+    return payload, channel
+
+
+def read_raw_frame(sock: socket.socket):
+    header = recv_exact(sock, 7)
+    frame_type, channel, size = struct.unpack(">BHI", header)
     payload = recv_exact(sock, size)
     trailer = recv_exact(sock, 1)
     if trailer != bytes([FRAME_END]):
         raise AssertionError("missing frame-end octet")
-    return payload, channel
+    return frame_type, payload, channel
 
 
 def recv_exact(sock: socket.socket, size: int) -> bytes:
@@ -141,6 +146,30 @@ def queue_purge_args(queue: str) -> bytes:
     return struct.pack(">H", 0) + shortstr(queue) + b"\x00"
 
 
+def basic_consume_args(queue: str) -> bytes:
+    return (
+        struct.pack(">H", 0)  # ticket
+        + shortstr(queue)
+        + shortstr("")  # server generates consumer tag
+        + b"\x00"  # no-ack off, explicit acks
+        + struct.pack(">I", 0)  # empty arguments table
+    )
+
+
+def basic_ack_args(delivery_tag: int) -> bytes:
+    return struct.pack(">Q", delivery_tag) + b"\x00"
+
+
+def basic_reject_args(delivery_tag: int, requeue: bool) -> bytes:
+    return struct.pack(">Q", delivery_tag) + (b"\x80" if requeue else b"\x00")
+
+
+def read_delivery_tag(payload: bytes) -> int:
+    tag_length = payload[4]
+    offset = 5 + tag_length
+    return struct.unpack(">Q", payload[offset:offset + 8])[0]
+
+
 def check_method(payload: bytes, expected_class: int, expected_method: int) -> None:
     class_id, method_id = struct.unpack(">HH", payload[:4])
     if class_id != expected_class or method_id != expected_method:
@@ -189,20 +218,65 @@ def main() -> int:
         payload, channel = read_frame(sock)
         check_method(payload, 50, 21)  # queue.bind-ok
 
+        sock.sendall(method(60, 20, basic_consume_args("q1"), channel=1))
+        payload, channel = read_frame(sock)
+        check_method(payload, 60, 21)  # basic.consume-ok
+
         body = b"hello"
         sock.sendall(method(60, 40, basic_publish_args("", "q1"), channel=1))
         sock.sendall(frame(content_header(body), channel=1, frame_type=2))
         sock.sendall(frame(body, channel=1, frame_type=3))
 
+        frame_type, payload, channel = read_raw_frame(sock)
+        if frame_type != 1:
+            raise AssertionError(f"expected basic.deliver, got frame {frame_type}")
+        check_method(payload, 60, 60)  # basic.deliver
+        first_tag = read_delivery_tag(payload)
+        frame_type, payload, channel = read_raw_frame(sock)
+        if frame_type != 2:
+            raise AssertionError(f"expected content header, got frame {frame_type}")
+        frame_type, payload, channel = read_raw_frame(sock)
+        if frame_type != 3 or payload != body:
+            raise AssertionError("content body mismatch")
+        sock.sendall(method(60, 80, basic_ack_args(first_tag), channel=1))
+
+        sock.sendall(method(60, 40, basic_publish_args("", "q1"), channel=1))
+        sock.sendall(frame(content_header(body), channel=1, frame_type=2))
+        sock.sendall(frame(body, channel=1, frame_type=3))
+        frame_type, payload, channel = read_raw_frame(sock)
+        if frame_type != 1:
+            raise AssertionError(f"expected second basic.deliver, got {frame_type}")
+        check_method(payload, 60, 60)
+        second_tag = read_delivery_tag(payload)
+        frame_type, payload, channel = read_raw_frame(sock)
+        if frame_type != 2:
+            raise AssertionError("expected second content header")
+        frame_type, payload, channel = read_raw_frame(sock)
+        if frame_type != 3:
+            raise AssertionError("expected second content body")
+        sock.sendall(method(60, 90, basic_reject_args(second_tag, True), channel=1))
+        frame_type, payload, channel = read_raw_frame(sock)
+        if frame_type != 1:
+            raise AssertionError(f"expected redelivery, got frame {frame_type}")
+        check_method(payload, 60, 60)
+        redelivered_tag = read_delivery_tag(payload)
+        frame_type, payload, channel = read_raw_frame(sock)
+        if frame_type != 2:
+            raise AssertionError("expected redelivered content header")
+        frame_type, payload, channel = read_raw_frame(sock)
+        if frame_type != 3:
+            raise AssertionError("expected redelivered content body")
+        sock.sendall(method(60, 80, basic_ack_args(redelivered_tag), channel=1))
+
         sock.sendall(method(50, 30, queue_purge_args("q1"), channel=1))
         payload, channel = read_frame(sock)
         check_method(payload, 50, 31)  # queue.purge-ok
         purged = struct.unpack(">I", payload[4:8])[0]
-        if purged != 1:
-            raise AssertionError(f"expected one purged message, got {purged}")
+        if purged != 0:
+            raise AssertionError(f"expected zero purged messages, got {purged}")
 
-        # basic.consume is not implemented yet; it must close only channel 1.
-        sock.sendall(method(60, 20, b"", channel=1))
+        # basic.qos is not implemented yet; it must close only channel 1.
+        sock.sendall(method(60, 10, b"", channel=1))
         payload, channel = read_frame(sock)
         check_method(payload, 20, 40)  # channel.close
         reply_code = struct.unpack(">H", payload[4:6])[0]

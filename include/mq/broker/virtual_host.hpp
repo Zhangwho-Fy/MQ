@@ -3,10 +3,12 @@
 
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <map>
 #include <set>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace mq::broker {
 
@@ -35,7 +37,15 @@ struct QueueSpec {
 struct Message {
     std::string body;
     bool persistent = false;
+    bool redelivered = false;
+    std::string exchange;
+    std::string routing_key;
+    uint64_t id = 0;
 };
+
+using ConsumerDeliver =
+    std::function<void(const std::string& consumer_tag,
+                       const std::string& queue, const Message& message)>;
 
 // In-memory virtual host used by the AMQP method layer until persistence is
 // introduced. It deliberately tracks multiple binding keys per (exchange,
@@ -58,6 +68,20 @@ public:
     bool hasQueue(const std::string& name) const;
     size_t queueCount() const { return queues_.size(); }
 
+    BrokerResult registerConsumer(const std::string& queue,
+                                  const std::string& consumer_tag,
+                                  void* owner,
+                                  ConsumerDeliver deliver,
+                                  bool no_ack = false);
+    void unregisterConsumers(void* owner);
+    void unregisterConsumer(const std::string& queue,
+                            const std::string& consumer_tag, void* owner);
+    size_t consumerCount(const std::string& queue) const;
+    BrokerResult ackMessage(uint64_t message_id);
+    BrokerResult rejectMessage(uint64_t message_id, bool requeue);
+    void requeueUnacked(void* owner);
+    size_t unackedCount() const { return unacked_.size(); }
+
     BrokerResult publish(const std::string& exchange,
                          const std::string& routing_key,
                          const Message& message,
@@ -78,12 +102,31 @@ private:
         std::set<std::pair<std::string, std::string>> bindings;
     };
 
+    struct ConsumerEntry {
+        std::string consumer_tag;
+        void* owner = nullptr;
+        bool no_ack = false;
+        ConsumerDeliver deliver;
+    };
+
+    struct UnackedEntry {
+        std::string queue;
+        Message message;
+        void* owner = nullptr;
+    };
+
+    void deliverPending(const std::string& queue);
+
     struct ExchangeEntry {
         ExchangeSpec spec;
     };
 
     std::map<std::string, ExchangeEntry> exchanges_;
     std::map<std::string, QueueEntry> queues_;
+    std::map<std::string, std::vector<ConsumerEntry>> consumers_;
+    std::map<std::string, size_t> consumer_round_robin_;
+    std::map<uint64_t, UnackedEntry> unacked_;
+    uint64_t next_message_id_ = 1;
 };
 
 }  // namespace mq::broker

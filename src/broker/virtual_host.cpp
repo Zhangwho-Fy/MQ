@@ -1,5 +1,6 @@
 #include "mq/broker/virtual_host.hpp"
 
+#include <algorithm>
 #include <vector>
 
 namespace mq::broker {
@@ -183,8 +184,12 @@ BrokerResult VirtualHost::publish(const std::string& exchange,
     const auto routeToQueue = [&](const std::string& queue) {
         const auto it = queues_.find(queue);
         if (it == queues_.end()) return;
-        it->second.messages.push_back(message);
+        Message copy = message;
+        copy.id = next_message_id_++;
+        copy.redelivered = false;
+        it->second.messages.push_back(copy);
         ++count;
+        deliverPending(queue);
     };
 
     if (exchange.empty()) {
@@ -220,6 +225,132 @@ BrokerResult VirtualHost::publish(const std::string& exchange,
 
     if (delivered != nullptr) *delivered = count;
     return BrokerResult{};
+}
+
+BrokerResult VirtualHost::registerConsumer(
+    const std::string& queue, const std::string& consumer_tag, void* owner,
+    ConsumerDeliver deliver, bool no_ack) {
+    const auto queue_it = queues_.find(queue);
+    if (queue_it == queues_.end()) {
+        return BrokerResult{false, kNotFound, "queue not found", 0};
+    }
+    auto& entries = consumers_[queue];
+    for (const auto& entry : entries) {
+        if (entry.owner == owner && entry.consumer_tag == consumer_tag) {
+            return BrokerResult{};
+        }
+    }
+    entries.push_back(
+        ConsumerEntry{consumer_tag, owner, no_ack, std::move(deliver)});
+    deliverPending(queue);
+    return BrokerResult{};
+}
+
+void VirtualHost::unregisterConsumers(void* owner) {
+    for (auto it = consumers_.begin(); it != consumers_.end();) {
+        auto& entries = it->second;
+        entries.erase(std::remove_if(entries.begin(), entries.end(),
+                                     [owner](const ConsumerEntry& entry) {
+                                         return entry.owner == owner;
+                                     }),
+                      entries.end());
+        consumer_round_robin_.erase(it->first);
+        if (entries.empty()) {
+            it = consumers_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void VirtualHost::unregisterConsumer(const std::string& queue,
+                                     const std::string& consumer_tag,
+                                     void* owner) {
+    const auto it = consumers_.find(queue);
+    if (it == consumers_.end()) return;
+    auto& entries = it->second;
+    entries.erase(
+        std::remove_if(entries.begin(), entries.end(),
+                       [&](const ConsumerEntry& entry) {
+                           return entry.owner == owner &&
+                                  entry.consumer_tag == consumer_tag;
+                       }),
+        entries.end());
+    consumer_round_robin_.erase(queue);
+    if (entries.empty()) consumers_.erase(it);
+}
+
+size_t VirtualHost::consumerCount(const std::string& queue) const {
+    const auto it = consumers_.find(queue);
+    return it == consumers_.end() ? 0 : it->second.size();
+}
+
+BrokerResult VirtualHost::ackMessage(uint64_t message_id) {
+    const auto it = unacked_.find(message_id);
+    if (it == unacked_.end()) {
+        return BrokerResult{false, kPreconditionFailed,
+                            "unknown delivery tag", 0};
+    }
+    unacked_.erase(it);
+    return BrokerResult{};
+}
+
+BrokerResult VirtualHost::rejectMessage(uint64_t message_id, bool requeue) {
+    const auto it = unacked_.find(message_id);
+    if (it == unacked_.end()) {
+        return BrokerResult{false, kPreconditionFailed,
+                            "unknown delivery tag", 0};
+    }
+    UnackedEntry entry = std::move(it->second);
+    unacked_.erase(it);
+    if (requeue) {
+        entry.message.redelivered = true;
+        queues_[entry.queue].messages.push_front(entry.message);
+        deliverPending(entry.queue);
+    }
+    return BrokerResult{};
+}
+
+void VirtualHost::requeueUnacked(void* owner) {
+    std::vector<UnackedEntry> entries;
+    for (auto it = unacked_.begin(); it != unacked_.end();) {
+        if (it->second.owner == owner) {
+            entries.push_back(std::move(it->second));
+            it = unacked_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (auto& entry : entries) {
+        entry.message.redelivered = true;
+        queues_[entry.queue].messages.push_front(entry.message);
+    }
+    for (const auto& entry : entries) {
+        deliverPending(entry.queue);
+    }
+}
+
+void VirtualHost::deliverPending(const std::string& queue) {
+    const auto queue_it = queues_.find(queue);
+    if (queue_it == queues_.end()) return;
+    const auto consumer_it = consumers_.find(queue);
+    if (consumer_it == consumers_.end() || consumer_it->second.empty()) return;
+
+    const std::vector<ConsumerEntry> consumers = consumer_it->second;
+    size_t& index = consumer_round_robin_[queue];
+    while (!queue_it->second.messages.empty() && !consumers.empty()) {
+        const ConsumerEntry& entry = consumers[index % consumers.size()];
+        Message message = queue_it->second.messages.front();
+        queue_it->second.messages.pop_front();
+        ++index;
+        if (!entry.no_ack) {
+            unacked_[message.id] =
+                UnackedEntry{queue, message, entry.owner};
+        }
+        if (entry.deliver) {
+            entry.deliver(entry.consumer_tag, queue, message);
+        }
+    }
 }
 
 BrokerResult VirtualHost::bind(const std::string& exchange,

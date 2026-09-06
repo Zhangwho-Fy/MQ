@@ -166,6 +166,91 @@ TEST(VirtualHostTest, PurgeRemovesMessagesAndReportsCount) {
     EXPECT_EQ(host.messageCount("q1"), 0U);
 }
 
+TEST(VirtualHostTest, ConsumerReceivesQueuedMessages) {
+    VirtualHost host;
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q1", false, false, false}).ok);
+    ASSERT_TRUE(host.publish("", "q1", Message{"queued", false}).ok);
+    EXPECT_EQ(host.messageCount("q1"), 1U);
+
+    std::vector<std::string> received;
+    const BrokerResult result = host.registerConsumer(
+        "q1", "c1", this,
+        [&](const std::string&, const std::string&, const Message& message) {
+            received.push_back(message.body);
+        });
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_EQ(received.size(), 1U);
+    EXPECT_EQ(received[0], "queued");
+    EXPECT_EQ(host.messageCount("q1"), 0U);
+    EXPECT_EQ(host.consumerCount("q1"), 1U);
+}
+
+TEST(VirtualHostTest, PublishDeliversToExistingConsumer) {
+    VirtualHost host;
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q1", false, false, false}).ok);
+
+    std::vector<std::string> received;
+    ASSERT_TRUE(host
+                    .registerConsumer(
+                        "q1", "c1", this,
+                        [&](const std::string&, const std::string&,
+                            const Message& message) {
+                            received.push_back(message.body);
+                        })
+                    .ok);
+
+    ASSERT_TRUE(host.publish("", "q1", Message{"live", false}).ok);
+    EXPECT_EQ(received.size(), 1U);
+    EXPECT_EQ(received[0], "live");
+    EXPECT_EQ(host.messageCount("q1"), 0U);
+}
+
+TEST(VirtualHostTest, AckRemovesUnackedMessage) {
+    VirtualHost host;
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q1", false, false, false}).ok);
+    uint64_t delivered_id = 0;
+    ASSERT_TRUE(host
+                    .registerConsumer(
+                        "q1", "c1", this,
+                        [&](const std::string&, const std::string&,
+                            const Message& message) {
+                            delivered_id = message.id;
+                        })
+                    .ok);
+    ASSERT_TRUE(host.publish("", "q1", Message{"a", false}).ok);
+    EXPECT_EQ(host.unackedCount(), 1U);
+    ASSERT_NE(delivered_id, 0U);
+
+    ASSERT_TRUE(host.ackMessage(delivered_id).ok);
+    EXPECT_EQ(host.unackedCount(), 0U);
+    EXPECT_EQ(host.ackMessage(delivered_id).reply_code,
+              VirtualHost::kPreconditionFailed);
+}
+
+TEST(VirtualHostTest, RejectRequeuesAndMarksRedelivered) {
+    VirtualHost host;
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q1", false, false, false}).ok);
+    std::vector<Message> received;
+    ASSERT_TRUE(host
+                    .registerConsumer(
+                        "q1", "c1", this,
+                        [&](const std::string&, const std::string&,
+                            const Message& message) {
+                            received.push_back(message);
+                        })
+                    .ok);
+    ASSERT_TRUE(host.publish("", "q1", Message{"a", false}).ok);
+    ASSERT_EQ(received.size(), 1U);
+    EXPECT_EQ(host.unackedCount(), 1U);
+
+    const uint64_t id = received[0].id;
+    ASSERT_TRUE(host.rejectMessage(id, true).ok);
+    ASSERT_EQ(received.size(), 2U);
+    EXPECT_TRUE(received[1].redelivered);
+    EXPECT_EQ(received[1].id, id);
+    EXPECT_EQ(host.unackedCount(), 1U);
+}
+
 }  // namespace mq::broker
 
 int main(int argc, char** argv) {

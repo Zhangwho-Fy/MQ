@@ -56,6 +56,7 @@ public:
     ConnectionSession(const ConnectionConfig& config, SendCallback send,
                       std::shared_ptr<broker::VirtualHost> virtual_host =
                           nullptr);
+    ~ConnectionSession();
 
     SessionResult feed(std::string_view bytes);
 
@@ -85,6 +86,12 @@ private:
         bool header_received = false;
     };
 
+    struct SessionConsumer {
+        uint16_t channel = 0;
+        std::string queue;
+        std::string consumer_tag;
+    };
+
     SessionResult processFrames(std::string_view bytes);
     SessionResult handleMethod(uint16_t channel, std::string_view payload);
     SessionResult handleBasicMethod(uint16_t channel,
@@ -92,6 +99,9 @@ private:
     SessionResult handleContentFrame(uint16_t channel, const Frame& frame);
     SessionResult finishPendingContent(uint16_t channel,
                                        PendingContent& pending);
+    void deliverToConsumer(const std::string& consumer_tag,
+                           const std::string& queue,
+                           const broker::Message& message);
     SessionResult handleConnectionMethod(const MethodHeader& header);
     SessionResult handleChannelMethod(uint16_t channel,
                                       const MethodHeader& header);
@@ -123,6 +133,11 @@ private:
     uint16_t heartbeat_ = 0;
     std::map<uint16_t, ChannelState> channels_;
     std::map<uint16_t, PendingContent> pending_content_;
+    std::map<std::string, SessionConsumer> consumers_;
+    std::map<uint16_t, uint64_t> delivery_seq_;
+    std::map<uint16_t, std::map<uint64_t, uint64_t>>
+        delivery_tag_to_message_;
+    uint64_t generated_consumer_seq_ = 0;
     std::shared_ptr<broker::VirtualHost> virtual_host_;
     uint64_t generated_queue_seq_ = 0;
 };

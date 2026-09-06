@@ -103,6 +103,125 @@ bool decodeBasicReturn(std::string_view arguments, BasicReturn& ret,
     return true;
 }
 
+std::string encodeBasicConsume(const BasicConsume& consume) {
+    WireWriter writer;
+    writer.writeU16(consume.ticket);
+    writeShortString(writer, consume.queue);
+    writeShortString(writer, consume.consumer_tag);
+    writeBits(writer,
+              {consume.no_local, consume.no_ack, consume.exclusive,
+               consume.no_wait});
+    writer.writeBytes(encodeFieldTable(consume.arguments));
+    return writer.takeBytes();
+}
+
+bool decodeBasicConsume(std::string_view arguments, BasicConsume& consume,
+                        std::string& error) {
+    WireReader reader(arguments);
+    if (!reader.readU16(consume.ticket) ||
+        !readShortString(reader, consume.queue) ||
+        !readShortString(reader, consume.consumer_tag)) {
+        error = "truncated basic.consume";
+        return false;
+    }
+    if (!readBits(reader,
+                  {&consume.no_local, &consume.no_ack, &consume.exclusive,
+                   &consume.no_wait})) {
+        error = "invalid basic.consume bits";
+        return false;
+    }
+    return skipTable(reader);
+}
+
+std::string encodeBasicCancel(const BasicCancel& cancel) {
+    WireWriter writer;
+    writeShortString(writer, cancel.consumer_tag);
+    writeBits(writer, {cancel.no_wait});
+    return writer.takeBytes();
+}
+
+bool decodeBasicCancel(std::string_view arguments, BasicCancel& cancel,
+                       std::string& error) {
+    WireReader reader(arguments);
+    if (!readShortString(reader, cancel.consumer_tag)) {
+        error = "truncated basic.cancel";
+        return false;
+    }
+    return readBits(reader, {&cancel.no_wait});
+}
+
+std::string encodeBasicDeliver(const BasicDeliver& deliver) {
+    WireWriter writer;
+    writeShortString(writer, deliver.consumer_tag);
+    writer.writeU64(deliver.delivery_tag);
+    writeBits(writer, {deliver.redelivered});
+    writeShortString(writer, deliver.exchange);
+    writeShortString(writer, deliver.routing_key);
+    return writer.takeBytes();
+}
+
+bool decodeBasicDeliver(std::string_view arguments, BasicDeliver& deliver,
+                        std::string& error) {
+    WireReader reader(arguments);
+    if (!readShortString(reader, deliver.consumer_tag) ||
+        !reader.readU64(deliver.delivery_tag)) {
+        error = "truncated basic.deliver";
+        return false;
+    }
+    if (!readBits(reader, {&deliver.redelivered})) {
+        error = "invalid basic.deliver bits";
+        return false;
+    }
+    return readShortString(reader, deliver.exchange) &&
+           readShortString(reader, deliver.routing_key);
+}
+
+std::string encodeBasicConsumeOk(const std::string& consumer_tag) {
+    WireWriter writer;
+    writeShortString(writer, consumer_tag);
+    return writer.takeBytes();
+}
+
+std::string encodeBasicCancelOk(const std::string& consumer_tag) {
+    WireWriter writer;
+    writeShortString(writer, consumer_tag);
+    return writer.takeBytes();
+}
+
+std::string encodeBasicAck(const BasicAck& ack) {
+    WireWriter writer;
+    writer.writeU64(ack.delivery_tag);
+    writeBits(writer, {ack.multiple});
+    return writer.takeBytes();
+}
+
+bool decodeBasicAck(std::string_view arguments, BasicAck& ack,
+                    std::string& error) {
+    WireReader reader(arguments);
+    if (!reader.readU64(ack.delivery_tag)) {
+        error = "truncated basic.ack";
+        return false;
+    }
+    return readBits(reader, {&ack.multiple});
+}
+
+std::string encodeBasicReject(const BasicReject& reject) {
+    WireWriter writer;
+    writer.writeU64(reject.delivery_tag);
+    writeBits(writer, {reject.requeue});
+    return writer.takeBytes();
+}
+
+bool decodeBasicReject(std::string_view arguments, BasicReject& reject,
+                       std::string& error) {
+    WireReader reader(arguments);
+    if (!reader.readU64(reject.delivery_tag)) {
+        error = "truncated basic.reject";
+        return false;
+    }
+    return readBits(reader, {&reject.requeue});
+}
+
 std::string encodeContentHeader(uint64_t body_size) {
     WireWriter writer;
     writer.writeU16(kBasicClassId);

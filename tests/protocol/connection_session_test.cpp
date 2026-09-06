@@ -526,6 +526,175 @@ TEST(ConnectionSessionTest, MandatoryUnroutableReturnsMessage) {
     EXPECT_EQ(session.state(), ConnectionState::kReady);
 }
 
+TEST(ConnectionSessionTest, ConsumeReceivesDeliveredMessage) {
+    auto host = std::make_shared<broker::VirtualHost>();
+    std::vector<std::string> sent;
+    ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    }, host);
+    establishReady(session, sent);
+    ASSERT_TRUE(host->declareQueue(
+                    broker::QueueSpec{"q1", false, false, false})
+                    .ok);
+
+    const uint16_t channel = 1;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Open),
+                        encodeChannelOpen(ChannelOpen{}), channel))
+                    .ok);
+    const size_t before_consume = sent.size();
+
+    BasicConsume consume;
+    consume.queue = "q1";
+    consume.no_ack = true;
+    const SessionResult consume_result = session.feed(encodeMethodFrame(
+        kBasicClassId, static_cast<uint16_t>(BasicMethodId::Consume),
+        encodeBasicConsume(consume), channel));
+    ASSERT_TRUE(consume_result.ok) << consume_result.error;
+    ASSERT_EQ(sent.size(), before_consume + 1U);
+    MethodHeader header;
+    std::string error;
+    ASSERT_TRUE(decodeCapturedMethod(sent[before_consume], header, error))
+        << error;
+    EXPECT_EQ(header.method_id,
+              static_cast<uint16_t>(BasicMethodId::ConsumeOk));
+
+    const size_t before_publish = sent.size();
+    BasicPublish publish;
+    publish.exchange = "";
+    publish.routing_key = "q1";
+    const std::string body = "hello";
+    const SessionResult publish_result = session.feed(
+        encodeMethodFrame(
+            kBasicClassId,
+            static_cast<uint16_t>(BasicMethodId::Publish),
+            encodeBasicPublish(publish), channel) +
+        encodeRawFrame(kFrameHeader, channel, encodeContentHeader(body.size())) +
+        encodeRawFrame(kFrameBody, channel, body));
+    ASSERT_TRUE(publish_result.ok) << publish_result.error;
+    EXPECT_EQ(host->messageCount("q1"), 0U);
+    ASSERT_EQ(sent.size(), before_publish + 3U);
+
+    ASSERT_TRUE(decodeCapturedMethod(sent[before_publish], header, error))
+        << error;
+    EXPECT_EQ(header.class_id, kBasicClassId);
+    EXPECT_EQ(header.method_id,
+              static_cast<uint16_t>(BasicMethodId::Deliver));
+    BasicDeliver deliver;
+    ASSERT_TRUE(decodeBasicDeliver(header.arguments, deliver, error)) << error;
+    EXPECT_EQ(deliver.delivery_tag, 1U);
+    EXPECT_EQ(deliver.exchange, "");
+    EXPECT_EQ(deliver.routing_key, "q1");
+    EXPECT_EQ(static_cast<unsigned char>(sent[before_publish + 1][0]),
+              kFrameHeader);
+    EXPECT_EQ(static_cast<unsigned char>(sent[before_publish + 2][0]),
+              kFrameBody);
+}
+
+TEST(ConnectionSessionTest, AckAndRejectControlDelivery) {
+    auto host = std::make_shared<broker::VirtualHost>();
+    std::vector<std::string> sent;
+    ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    }, host);
+    establishReady(session, sent);
+    ASSERT_TRUE(host->declareQueue(
+                    broker::QueueSpec{"q1", false, false, false})
+                    .ok);
+
+    const uint16_t channel = 1;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Open),
+                        encodeChannelOpen(ChannelOpen{}), channel))
+                    .ok);
+    BasicConsume consume;
+    consume.queue = "q1";
+    consume.no_ack = false;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kBasicClassId,
+                        static_cast<uint16_t>(BasicMethodId::Consume),
+                        encodeBasicConsume(consume), channel))
+                    .ok);
+
+    auto publish_one = [&](const std::string& body) {
+        BasicPublish publish;
+        publish.exchange = "";
+        publish.routing_key = "q1";
+        return session.feed(
+            encodeMethodFrame(
+                kBasicClassId,
+                static_cast<uint16_t>(BasicMethodId::Publish),
+                encodeBasicPublish(publish), channel) +
+            encodeRawFrame(kFrameHeader, channel,
+                           encodeContentHeader(body.size())) +
+            encodeRawFrame(kFrameBody, channel, body));
+    };
+
+    // First message: deliver then ack.
+    ASSERT_TRUE(publish_one("first").ok);
+    EXPECT_EQ(host->unackedCount(), 1U);
+    MethodHeader header;
+    std::string error;
+    ASSERT_TRUE(decodeCapturedMethod(sent[sent.size() - 3], header, error))
+        << error;
+    BasicDeliver first_deliver;
+    ASSERT_TRUE(decodeBasicDeliver(header.arguments, first_deliver, error))
+        << error;
+    EXPECT_FALSE(first_deliver.redelivered);
+
+    BasicAck ack;
+    ack.delivery_tag = first_deliver.delivery_tag;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kBasicClassId,
+                        static_cast<uint16_t>(BasicMethodId::Ack),
+                        encodeBasicAck(ack), channel))
+                    .ok);
+    EXPECT_EQ(host->unackedCount(), 0U);
+
+    // Second message: reject with requeue => immediate redelivery.
+    ASSERT_TRUE(publish_one("second").ok);
+    EXPECT_EQ(host->unackedCount(), 1U);
+    ASSERT_TRUE(decodeCapturedMethod(sent[sent.size() - 3], header, error))
+        << error;
+    BasicDeliver second_deliver;
+    ASSERT_TRUE(decodeBasicDeliver(header.arguments, second_deliver, error))
+        << error;
+
+    BasicReject reject;
+    reject.delivery_tag = second_deliver.delivery_tag;
+    reject.requeue = true;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kBasicClassId,
+                        static_cast<uint16_t>(BasicMethodId::Reject),
+                        encodeBasicReject(reject), channel))
+                    .ok);
+    ASSERT_TRUE(decodeCapturedMethod(sent[sent.size() - 3], header, error))
+        << error;
+    BasicDeliver redelivered;
+    ASSERT_TRUE(decodeBasicDeliver(header.arguments, redelivered, error))
+        << error;
+    EXPECT_TRUE(redelivered.redelivered);
+    EXPECT_EQ(host->unackedCount(), 1U);
+
+    // Clean up: ack the redelivered message.
+    BasicAck final_ack;
+    final_ack.delivery_tag = redelivered.delivery_tag;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kBasicClassId,
+                        static_cast<uint16_t>(BasicMethodId::Ack),
+                        encodeBasicAck(final_ack), channel))
+                    .ok);
+    EXPECT_EQ(host->unackedCount(), 0U);
+}
+
 }  // namespace mq::amqp091
 
 int main(int argc, char** argv) {
