@@ -7,6 +7,7 @@
 #include "muduo/net/http/HttpResponse.h"
 
 #include <chrono>
+#include <cstddef>
 #include <map>
 #include <utility>
 
@@ -26,6 +27,7 @@ std::string jsonEscape(const std::string& value) {
             out.push_back(ch);
         }
     }
+
     return out;
 }
 
@@ -46,6 +48,7 @@ std::string base64Decode(const std::string& input) {
             out.push_back(static_cast<char>((buffer >> bits) & 0xff));
         }
     }
+
     return out;
 }
 
@@ -63,9 +66,11 @@ std::map<std::string, std::string> parseQuery(
         if (eq != std::string::npos) {
             result[pair.substr(0, eq)] = pair.substr(eq + 1);
         }
+
         if (amp == std::string::npos) break;
         start = amp + 1;
     }
+
     return result;
 }
 
@@ -103,6 +108,7 @@ void AmqpConnectionHandler::onMessage(muduo::net::Buffer* buffer) {
         buffer->retrieveAll();
         return;
     }
+
     last_receive_ = std::chrono::steady_clock::now();
     const std::string_view data(buffer->peek(), buffer->readableBytes());
     const amqp091::SessionResult result = session_.feed(data);
@@ -124,6 +130,7 @@ void AmqpConnectionHandler::startHeartbeat() {
         [weak = weak_from_this()]() {
             if (const auto self = weak.lock()) self->onHeartbeat();
         });
+
     heartbeat_started_ = true;
 }
 
@@ -141,6 +148,7 @@ void AmqpConnectionHandler::onHeartbeat() {
         connection_->shutdown();
         return;
     }
+
     const std::string heartbeat =
         mq::amqp091::FrameEncoder::encode(
             mq::amqp091::Frame{
@@ -197,6 +205,7 @@ void AmqpServer::run() {
         ILOG("management HTTP server listening on port %u",
              static_cast<unsigned>(management_port_));
     }
+
     loop_.runEvery(0.2, [this]() {
         if (stop_requested_ != 0) {
             ILOG("graceful shutdown requested");
@@ -278,6 +287,7 @@ void AmqpServer::onHttpRequest(const muduo::net::HttpRequest& request,
         response->setBody("{\"error\":\"missing authorization\"}");
         return;
     }
+
     const std::string& header = auth_it->second;
     const std::string token =
         header.size() > 6 && header.compare(0, 6, "Basic ") == 0
@@ -293,6 +303,7 @@ void AmqpServer::onHttpRequest(const muduo::net::HttpRequest& request,
         response->setBody("{\"error\":\"unauthorized\"}");
         return;
     }
+
     const std::shared_ptr<broker::VirtualHost> vhost =
         broker_->resolveVhost(decoded.substr(0, colon), vhost_name);
     if (!vhost) {
@@ -354,6 +365,7 @@ void AmqpServer::onHttpRequest(const muduo::net::HttpRequest& request,
                     "\",\"message_ttl_ms\":" +
                     std::to_string(queue.message_ttl_ms) + "}";
         }
+
         body += "]";
         response->setBody(body);
         return;
@@ -374,6 +386,7 @@ void AmqpServer::onHttpRequest(const muduo::net::HttpRequest& request,
                     ",\"internal\":" +
                     std::string(exchange.internal ? "true" : "false") + "}";
         }
+
         body += "]";
         response->setBody(body);
         return;
@@ -392,8 +405,10 @@ void AmqpServer::onHttpRequest(const muduo::net::HttpRequest& request,
                 response->setStatusMessage("Not Found");
                 response->setBody("{\"error\":\"queue not found\"}");
             }
+
             return;
         }
+
         for (const auto& queue : vhost->listQueues()) {
             if (queue.name == queue_name) {
                 response->setBody("{\"name\":\"" + jsonEscape(queue.name) +
@@ -402,6 +417,7 @@ void AmqpServer::onHttpRequest(const muduo::net::HttpRequest& request,
                 return;
             }
         }
+
         response->setStatusCode(muduo::net::HttpResponse::k404NotFound);
         response->setStatusMessage("Not Found");
         response->setBody("{\"error\":\"queue not found\"}");

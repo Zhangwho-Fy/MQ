@@ -33,6 +33,7 @@ bool decodeConfirmSelect(std::string_view arguments, ConfirmSelect& select,
         error = "invalid confirm.select";
         return false;
     }
+
     return true;
 }
 

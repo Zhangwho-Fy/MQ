@@ -3,6 +3,7 @@
 #include "mq/protocol/amqp091/wire_reader.hpp"
 #include "mq/protocol/amqp091/wire_writer.hpp"
 
+#include <cstddef>
 #include <limits>
 
 namespace mq::amqp091 {
@@ -33,17 +34,21 @@ DecodeResult FrameDecoder::feed(std::string_view bytes, std::vector<Frame>& fram
             !header_reader.readU32(payload_size)) {
             return error("truncated AMQP frame header");
         }
+
         if (!isKnownFrameType(type)) {
             return error("unknown AMQP frame type");
         }
+
         const uint64_t wire_size = static_cast<uint64_t>(kFrameHeaderSize) +
                                    payload_size + kFrameTrailerSize;
         if (frame_max_ != 0 && wire_size > frame_max_) {
             return error("AMQP frame exceeds frame-max");
         }
+
         if (wire_size > std::numeric_limits<size_t>::max()) {
             return error("AMQP frame size overflows host size_t");
         }
+
         if (buffer_.size() < static_cast<size_t>(wire_size)) {
             break;
         }
@@ -53,6 +58,7 @@ DecodeResult FrameDecoder::feed(std::string_view bytes, std::vector<Frame>& fram
         if (frame_end != kFrameEnd) {
             return error("invalid AMQP frame-end octet");
         }
+
         if (type == kFrameHeartbeat && (channel != 0 || payload_size != 0)) {
             return error("heartbeat frame must use channel 0 and an empty payload");
         }
@@ -69,6 +75,7 @@ DecodeResult FrameDecoder::feed(std::string_view bytes, std::vector<Frame>& fram
     if (decoded == 0 && !buffer_.empty()) {
         return DecodeResult{DecodeStatus::kNeedMoreData, 0, {}};
     }
+
     return DecodeResult{DecodeStatus::kOk, decoded, {}};
 }
 
@@ -79,9 +86,10 @@ void FrameDecoder::reset() {
 }
 
 void FrameDecoder::setFrameMax(uint32_t frame_max) {
-    if (frame_max_ != 0 && frame_max < kFrameMinSize) {
+    if (frame_max != 0 && frame_max < kFrameMinSize) {
         throw FrameCodecError("frame-max is smaller than AMQP frame-min-size");
     }
+
     frame_max_ = frame_max;
 }
 
@@ -89,12 +97,15 @@ std::string FrameEncoder::encode(const Frame& frame, uint32_t frame_max) {
     if (!isKnownFrameType(frame.type)) {
         throw FrameCodecError("unknown AMQP frame type");
     }
+
     if (frame.type == kFrameHeartbeat && (frame.channel != 0 || !frame.payload.empty())) {
         throw FrameCodecError("heartbeat frame must use channel 0 and an empty payload");
     }
+
     if (frame.payload.size() > std::numeric_limits<uint32_t>::max()) {
         throw FrameCodecError("AMQP payload is too large");
     }
+
     const size_t total_size = frameWireSize(frame);
     if (frame_max != 0 && total_size > frame_max) {
         throw FrameCodecError("AMQP frame exceeds frame-max");

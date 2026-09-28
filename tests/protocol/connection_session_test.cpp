@@ -32,6 +32,7 @@ std::string encodeExpirationContentHeader(uint64_t body_size,
         payload.push_back(static_cast<char>(
             (body_size >> shift) & 0xff));
     }
+
     const uint16_t expiration_flag = 0x8000U >> 7;
     payload.push_back(static_cast<char>((expiration_flag >> 8) & 0xff));
     payload.push_back(static_cast<char>(expiration_flag & 0xff));
@@ -49,6 +50,7 @@ bool decodeCapturedMethod(const std::string& frame_bytes, MethodHeader& header,
             (static_cast<uint16_t>(static_cast<uint8_t>(frame_bytes[1])) << 8) |
             static_cast<uint16_t>(static_cast<uint8_t>(frame_bytes[2]));
     }
+
     const uint32_t payload_size =
         (static_cast<uint32_t>(static_cast<uint8_t>(frame_bytes[3])) << 24) |
         (static_cast<uint32_t>(static_cast<uint8_t>(frame_bytes[4])) << 16) |
@@ -1133,6 +1135,303 @@ TEST(ConnectionSessionTest, RecoverRequeuesUnackedMessages) {
         << error;
     EXPECT_EQ(header.method_id,
               static_cast<uint16_t>(BasicMethodId::RecoverOk));
+}
+
+// Closes and reopens the same channel number, leaving the session ready to use
+// channel 1 again.
+void reopenChannel(ConnectionSession& session, uint16_t channel) {
+    ChannelClose close;
+    close.reply_code = 200;
+    close.reply_text = "done";
+    const SessionResult closed = session.feed(encodeMethodFrame(
+        kChannelClassId, static_cast<uint16_t>(ChannelMethodId::Close),
+        encodeChannelClose(close), channel));
+    ASSERT_TRUE(closed.ok) << closed.error;
+    ASSERT_FALSE(session.isChannelOpen(channel));
+
+    const SessionResult reopened = session.feed(encodeMethodFrame(
+        kChannelClassId, static_cast<uint16_t>(ChannelMethodId::Open),
+        encodeChannelOpen(ChannelOpen{}), channel));
+    ASSERT_TRUE(reopened.ok) << reopened.error;
+    ASSERT_TRUE(session.isChannelOpen(channel));
+}
+
+size_t countMethodFrames(const std::vector<std::string>& sent, size_t from,
+                         uint16_t class_id, uint16_t method_id) {
+    size_t count = 0;
+    MethodHeader header;
+    std::string error;
+    for (size_t i = from; i < sent.size(); ++i) {
+        if (static_cast<unsigned char>(sent[i][0]) != kFrameMethod) continue;
+        if (!decodeCapturedMethod(sent[i], header, error)) continue;
+        if (header.class_id == class_id && header.method_id == method_id) {
+            ++count;
+        }
+    }
+
+    return count;
+}
+
+TEST(ConnectionSessionTest, ConfirmModeDoesNotSurviveChannelReopen) {
+    auto host = std::make_shared<broker::VirtualHost>();
+    std::vector<std::string> sent;
+    ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    }, host);
+    establishReady(session, sent);
+    ASSERT_TRUE(host->declareQueue(
+                    broker::QueueSpec{"q1", false, false, false})
+                    .ok);
+
+    const uint16_t channel = 1;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Open),
+                        encodeChannelOpen(ChannelOpen{}), channel))
+                    .ok);
+    ConfirmSelect select;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kConfirmClassId,
+                        static_cast<uint16_t>(ConfirmMethodId::Select),
+                        encodeConfirmSelect(select), channel))
+                    .ok);
+
+    reopenChannel(session, channel);
+
+    BasicPublish publish;
+    publish.exchange = "";
+    publish.routing_key = "q1";
+    const std::string body = "no confirm";
+    const size_t before_publish = sent.size();
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kBasicClassId,
+                        static_cast<uint16_t>(BasicMethodId::Publish),
+                        encodeBasicPublish(publish), channel) +
+                        encodeRawFrame(
+                            kFrameHeader, channel,
+                            encodeContentHeader(body.size())) +
+                        encodeRawFrame(kFrameBody, channel, body))
+                    .ok);
+    EXPECT_EQ(host->messageCount("q1"), 1U);
+    EXPECT_EQ(countMethodFrames(sent, before_publish, kBasicClassId,
+                                static_cast<uint16_t>(BasicMethodId::Ack)),
+              0U);
+}
+
+TEST(ConnectionSessionTest, QosPrefetchDoesNotSurviveChannelReopen) {
+    auto host = std::make_shared<broker::VirtualHost>();
+    std::vector<std::string> sent;
+    ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    }, host);
+    establishReady(session, sent);
+    ASSERT_TRUE(host->declareQueue(
+                    broker::QueueSpec{"q1", false, false, false})
+                    .ok);
+
+    const uint16_t channel = 1;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Open),
+                        encodeChannelOpen(ChannelOpen{}), channel))
+                    .ok);
+    BasicQos qos;
+    qos.prefetch_count = 1;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kBasicClassId,
+                        static_cast<uint16_t>(BasicMethodId::Qos),
+                        encodeBasicQos(qos), channel))
+                    .ok);
+
+    reopenChannel(session, channel);
+
+    BasicConsume consume;
+    consume.queue = "q1";
+    consume.no_ack = false;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kBasicClassId,
+                        static_cast<uint16_t>(BasicMethodId::Consume),
+                        encodeBasicConsume(consume), channel))
+                    .ok);
+
+    BasicPublish publish;
+    publish.exchange = "";
+    publish.routing_key = "q1";
+    const size_t before_publish = sent.size();
+    for (const std::string& body : {"one", "two"}) {
+        ASSERT_TRUE(session
+                        .feed(encodeMethodFrame(
+                            kBasicClassId,
+                            static_cast<uint16_t>(BasicMethodId::Publish),
+                            encodeBasicPublish(publish), channel) +
+                            encodeRawFrame(
+                                kFrameHeader, channel,
+                                encodeContentHeader(body.size())) +
+                            encodeRawFrame(kFrameBody, channel, body))
+                        .ok);
+    }
+
+    // The reopened channel has no prefetch limit, so both messages go out.
+    EXPECT_EQ(countMethodFrames(sent, before_publish, kBasicClassId,
+                                static_cast<uint16_t>(BasicMethodId::Deliver)),
+              2U);
+}
+
+TEST(ConnectionSessionTest, RejectsPublishWhileContentIsPending) {
+    auto host = std::make_shared<broker::VirtualHost>();
+    std::vector<std::string> sent;
+    ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    }, host);
+    establishReady(session, sent);
+    ASSERT_TRUE(host->declareQueue(
+                    broker::QueueSpec{"q1", false, false, false})
+                    .ok);
+
+    const uint16_t channel = 1;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Open),
+                        encodeChannelOpen(ChannelOpen{}), channel))
+                    .ok);
+
+    BasicPublish publish;
+    publish.exchange = "";
+    publish.routing_key = "q1";
+    const std::string publish_frame = encodeMethodFrame(
+        kBasicClassId, static_cast<uint16_t>(BasicMethodId::Publish),
+        encodeBasicPublish(publish), channel);
+    ASSERT_TRUE(session.feed(publish_frame).ok);
+
+    const SessionResult second = session.feed(publish_frame);
+    EXPECT_FALSE(second.ok);
+    EXPECT_EQ(second.reply_code, 505);
+    EXPECT_EQ(session.state(), ConnectionState::kClosed);
+}
+
+TEST(ConnectionSessionTest, RejectsChannelAboveNegotiatedMax) {
+    auto host = std::make_shared<broker::VirtualHost>();
+    std::vector<std::string> sent;
+    ConnectionConfig config;
+    config.channel_max = 2;
+    ConnectionSession session(config, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    }, host);
+    establishReady(session, sent);
+
+    const uint16_t channel = 3;
+    const SessionResult result = session.feed(encodeMethodFrame(
+        kChannelClassId, static_cast<uint16_t>(ChannelMethodId::Open),
+        encodeChannelOpen(ChannelOpen{}), channel));
+    EXPECT_TRUE(result.ok);  // the peer is told through channel.close
+    EXPECT_FALSE(session.isChannelOpen(channel));
+
+    MethodHeader header;
+    std::string error;
+    ASSERT_TRUE(decodeCapturedMethod(sent.back(), header, error)) << error;
+    EXPECT_EQ(header.class_id, kChannelClassId);
+    EXPECT_EQ(header.method_id, static_cast<uint16_t>(ChannelMethodId::Close));
+    ChannelClose close;
+    ASSERT_TRUE(decodeChannelClose(header.arguments, close, error)) << error;
+    EXPECT_EQ(close.reply_code, 504);
+}
+
+TEST(ConnectionSessionTest, ChannelCloseCancelsConsumersAndRequeues) {
+    auto host = std::make_shared<broker::VirtualHost>();
+    std::vector<std::string> sent;
+    ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    }, host);
+    establishReady(session, sent);
+    ASSERT_TRUE(host->declareQueue(
+                    broker::QueueSpec{"q1", false, false, false})
+                    .ok);
+
+    const uint16_t channel = 1;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Open),
+                        encodeChannelOpen(ChannelOpen{}), channel))
+                    .ok);
+    BasicConsume consume;
+    consume.queue = "q1";
+    consume.no_ack = false;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kBasicClassId,
+                        static_cast<uint16_t>(BasicMethodId::Consume),
+                        encodeBasicConsume(consume), channel))
+                    .ok);
+    ASSERT_EQ(host->consumerCount("q1"), 1U);
+
+    BasicPublish publish;
+    publish.exchange = "";
+    publish.routing_key = "q1";
+    const std::string body = "one";
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kBasicClassId,
+                        static_cast<uint16_t>(BasicMethodId::Publish),
+                        encodeBasicPublish(publish), channel) +
+                        encodeRawFrame(
+                            kFrameHeader, channel,
+                            encodeContentHeader(body.size())) +
+                        encodeRawFrame(kFrameBody, channel, body))
+                    .ok);
+    EXPECT_EQ(host->messageCount("q1"), 0U);
+    EXPECT_EQ(host->unackedCount(), 1U);
+
+    ChannelClose close;
+    close.reply_code = 200;
+    close.reply_text = "done";
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Close),
+                        encodeChannelClose(close), channel))
+                    .ok);
+
+    EXPECT_EQ(host->consumerCount("q1"), 0U);
+    EXPECT_EQ(host->unackedCount(), 0U);
+    EXPECT_EQ(host->messageCount("q1"), 1U);
+}
+
+TEST(ConnectionSessionTest, RejectsTuneOkFrameMaxBelowMinimum) {
+    std::vector<std::string> sent;
+    ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    });
+
+    ASSERT_TRUE(session.feed(kAmqp091ProtocolHeader).ok);
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kConnectionClassId,
+                        static_cast<uint16_t>(ConnectionMethodId::StartOk),
+                        encodeConnectionStartOk(makeStartOk())))
+                    .ok);
+    ASSERT_EQ(session.state(), ConnectionState::kWaitTuneOk);
+
+    // frame_max 的规范下限是 4096；给出更小的值必须被拒绝，而不是抛异常。
+    ConnectionTune tune_ok;
+    tune_ok.channel_max = 2047;
+    tune_ok.frame_max = 100;
+    tune_ok.heartbeat = 0;
+    const SessionResult result = session.feed(encodeMethodFrame(
+        kConnectionClassId,
+        static_cast<uint16_t>(ConnectionMethodId::TuneOk),
+        encodeConnectionTune(tune_ok)));
+
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.reply_code, 502);
+    EXPECT_EQ(session.state(), ConnectionState::kClosed);
 }
 
 }  // namespace mq::amqp091

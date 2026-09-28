@@ -3,58 +3,11 @@
 #include "mq/protocol/amqp091/wire_reader.hpp"
 #include "mq/protocol/amqp091/wire_writer.hpp"
 
+#include <cstddef>
+
 namespace mq::amqp091 {
 
 namespace {
-
-bool writeShortString(WireWriter& writer, const std::string& value) {
-    if (value.size() > 255) return false;
-    writer.writeU8(static_cast<uint8_t>(value.size()));
-    writer.writeBytes(value);
-    return true;
-}
-
-bool readShortString(WireReader& reader, std::string& value) {
-    uint8_t length = 0;
-    std::string_view bytes;
-    if (!reader.readU8(length) || !reader.readBytes(length, bytes)) return false;
-    value.assign(bytes.data(), bytes.size());
-    return true;
-}
-
-bool writeBits(WireWriter& writer, std::initializer_list<bool> bits) {
-    uint8_t octet = 0;
-    size_t index = 0;
-    for (bool bit : bits) {
-        if (index >= 8) return false;
-        if (bit) octet |= static_cast<uint8_t>(0x80U >> index);
-        ++index;
-    }
-    writer.writeU8(octet);
-    return true;
-}
-
-bool readBits(WireReader& reader, std::initializer_list<bool*> bits) {
-    uint8_t octet = 0;
-    if (!reader.readU8(octet)) return false;
-    size_t index = 0;
-    for (bool* bit : bits) {
-        if (index >= 8) return false;
-        *bit = (octet & (0x80U >> index)) != 0;
-        ++index;
-    }
-    return true;
-}
-
-bool readShortStringValue(WireReader& reader, std::string& value) {
-    uint8_t length = 0;
-    std::string_view bytes;
-    if (!reader.readU8(length) || !reader.readBytes(length, bytes)) {
-        return false;
-    }
-    value.assign(bytes.data(), bytes.size());
-    return true;
-}
 
 bool skipTable(WireReader& reader) {
     uint32_t length = 0;
@@ -82,6 +35,7 @@ bool decodeBasicPublish(std::string_view arguments, BasicPublish& publish,
         error = "truncated basic.publish";
         return false;
     }
+
     return readBits(reader, {&publish.mandatory, &publish.immediate});
 }
 
@@ -104,6 +58,7 @@ bool decodeBasicReturn(std::string_view arguments, BasicReturn& ret,
         error = "truncated basic.return";
         return false;
     }
+
     return true;
 }
 
@@ -128,6 +83,7 @@ bool decodeBasicConsume(std::string_view arguments, BasicConsume& consume,
         error = "truncated basic.consume";
         return false;
     }
+
     if (!readBits(reader,
                   {&consume.no_local, &consume.no_ack, &consume.exclusive,
                    &consume.no_wait})) {
@@ -151,6 +107,7 @@ bool decodeBasicCancel(std::string_view arguments, BasicCancel& cancel,
         error = "truncated basic.cancel";
         return false;
     }
+
     return readBits(reader, {&cancel.no_wait});
 }
 
@@ -172,10 +129,12 @@ bool decodeBasicDeliver(std::string_view arguments, BasicDeliver& deliver,
         error = "truncated basic.deliver";
         return false;
     }
+
     if (!readBits(reader, {&deliver.redelivered})) {
         error = "invalid basic.deliver bits";
         return false;
     }
+
     return readShortString(reader, deliver.exchange) &&
            readShortString(reader, deliver.routing_key);
 }
@@ -206,6 +165,7 @@ bool decodeBasicAck(std::string_view arguments, BasicAck& ack,
         error = "truncated basic.ack";
         return false;
     }
+
     return readBits(reader, {&ack.multiple});
 }
 
@@ -223,6 +183,7 @@ bool decodeBasicNack(std::string_view arguments, BasicNack& nack,
         error = "truncated basic.nack";
         return false;
     }
+
     return readBits(reader, {&nack.multiple, &nack.requeue});
 }
 
@@ -240,6 +201,7 @@ bool decodeBasicReject(std::string_view arguments, BasicReject& reject,
         error = "truncated basic.reject";
         return false;
     }
+
     return readBits(reader, {&reject.requeue});
 }
 
@@ -259,6 +221,7 @@ bool decodeBasicGet(std::string_view arguments, BasicGet& get,
         error = "truncated basic.get";
         return false;
     }
+
     return readBits(reader, {&get.no_ack});
 }
 
@@ -279,10 +242,12 @@ bool decodeBasicGetOk(std::string_view arguments, BasicGetOk& ok,
         error = "truncated basic.get-ok";
         return false;
     }
+
     if (!readBits(reader, {&ok.redelivered})) {
         error = "invalid basic.get-ok bits";
         return false;
     }
+
     return readShortString(reader, ok.exchange) &&
            readShortString(reader, ok.routing_key) &&
            reader.readU32(ok.message_count);
@@ -304,6 +269,7 @@ bool decodeBasicQos(std::string_view arguments, BasicQos& qos,
         error = "truncated basic.qos";
         return false;
     }
+
     return readBits(reader, {&qos.global});
 }
 
@@ -314,7 +280,7 @@ std::string encodeBasicRecover(const BasicRecover& recover) {
 }
 
 bool decodeBasicRecover(std::string_view arguments, BasicRecover& recover,
-                        std::string& error) {
+                        std::string&) {
     WireReader reader(arguments);
     return readBits(reader, {&recover.requeue});
 }
@@ -338,6 +304,7 @@ bool decodeContentHeader(std::string_view payload, ContentHeaderInfo& info,
         error = "truncated content header";
         return false;
     }
+
     info.class_id = class_id;
     if (class_id != kBasicClassId || weight != 0) {
         error = "unsupported content class";
@@ -378,10 +345,11 @@ bool decodeContentHeader(std::string_view payload, ContentHeaderInfo& info,
         if ((flags & mask) == 0) continue;
         if (properties[i].kind == 's') {
             std::string value;
-            if (!readShortStringValue(reader, value)) {
+            if (!readShortString(reader, value)) {
                 error = "invalid short string property";
                 return false;
             }
+
             if (i == 7) {  // expiration
                 info.expiration = std::move(value);
             }
@@ -391,6 +359,7 @@ bool decodeContentHeader(std::string_view payload, ContentHeaderInfo& info,
                 error = "truncated octet property";
                 return false;
             }
+
             if (properties[i].persistent_flag != nullptr) {
                 delivery_mode_2 = value == 2;
             }
@@ -407,6 +376,7 @@ bool decodeContentHeader(std::string_view payload, ContentHeaderInfo& info,
             }
         }
     }
+
     info.persistent = delivery_mode_2;
     return true;
 }

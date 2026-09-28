@@ -1,5 +1,6 @@
 #include "mq/protocol/amqp091/wire_reader.hpp"
 
+#include <cstddef>
 #include <cstring>
 
 namespace mq::amqp091 {
@@ -38,6 +39,7 @@ bool WireReader::readU64(uint64_t& value) {
     for (size_t i = 0; i < 8; ++i) {
         value = (value << 8) | static_cast<uint8_t>(bytes_[position_ + i]);
     }
+
     position_ += 8;
     return true;
 }

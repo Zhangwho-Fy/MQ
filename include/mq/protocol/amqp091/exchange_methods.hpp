@@ -1,7 +1,7 @@
 #ifndef MQ_PROTOCOL_AMQP091_EXCHANGE_METHODS_HPP
 #define MQ_PROTOCOL_AMQP091_EXCHANGE_METHODS_HPP
 
-#include "fields.hpp"
+#include "mq/protocol/amqp091/fields.hpp"
 
 #include <cstdint>
 #include <string>

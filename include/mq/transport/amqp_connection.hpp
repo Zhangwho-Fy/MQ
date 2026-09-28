@@ -11,6 +11,7 @@
 #include "muduo/net/TcpConnection.h"
 #include "muduo/net/TcpServer.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <chrono>
 #include <csignal>
@@ -44,6 +45,7 @@ private:
     amqp091::ConnectionSession session_;
     bool closing_ = false;
     std::chrono::steady_clock::time_point last_receive_;
+
     uint16_t heartbeat_interval_ = 0;
     bool heartbeat_started_ = false;
     muduo::net::TimerId heartbeat_timer_;
@@ -72,14 +74,18 @@ private:
 
     muduo::net::EventLoop loop_;
     muduo::net::TcpServer server_;
+
     amqp091::ConnectionConfig config_;
     std::shared_ptr<broker::Broker> broker_;
+
+    std::unique_ptr<muduo::net::HttpServer> http_server_;
+    uint16_t management_port_ = 0;
+
     std::map<muduo::net::TcpConnectionPtr,
              std::shared_ptr<AmqpConnectionHandler>>
         connections_;
     mutable std::mutex connections_mutex_;
-    std::unique_ptr<muduo::net::HttpServer> http_server_;
-    uint16_t management_port_ = 0;
+
     volatile std::sig_atomic_t stop_requested_ = 0;
 };
 

@@ -1,8 +1,8 @@
 #ifndef MQ_PROTOCOL_AMQP091_FRAME_HPP
 #define MQ_PROTOCOL_AMQP091_FRAME_HPP
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -14,6 +14,7 @@ constexpr uint8_t kFrameHeader = 2;
 constexpr uint8_t kFrameBody = 3;
 constexpr uint8_t kFrameHeartbeat = 8;
 constexpr uint8_t kFrameEnd = 0xCE;
+
 constexpr uint32_t kFrameMinSize = 4096;
 constexpr size_t kFrameHeaderSize = 7;
 constexpr size_t kFrameTrailerSize = 1;

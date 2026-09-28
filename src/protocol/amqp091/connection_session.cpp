@@ -1,6 +1,7 @@
 #include "mq/protocol/amqp091/connection_session.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 #include <limits>
 #include <vector>
@@ -34,9 +35,9 @@ ConnectionSession::ConnectionSession(const ConnectionConfig& config,
       channel_max_(config.channel_max),
       frame_max_(config.frame_max),
       heartbeat_(config.heartbeat),
-      virtual_host_(std::move(virtual_host)),
       auth_callback_(std::move(auth_callback)),
-      vhost_resolver_(std::move(vhost_resolver)) {}
+      vhost_resolver_(std::move(vhost_resolver)),
+      virtual_host_(std::move(virtual_host)) {}
 
 ConnectionSession::~ConnectionSession() {
     if (virtual_host_) virtual_host_->disconnectOwner(this);
@@ -52,10 +53,12 @@ SessionResult ConnectionSession::feed(std::string_view bytes) {
         if (header_buffer_.size() < kAmqp091ProtocolHeader.size()) {
             return SessionResult{};
         }
+
         if (std::memcmp(header_buffer_.data(), kAmqp091ProtocolHeader.data(),
                         kAmqp091ProtocolHeader.size()) != 0) {
             return fail("invalid AMQP protocol header", 501);
         }
+
         bytes = std::string_view(header_buffer_).substr(
             kAmqp091ProtocolHeader.size());
         header_buffer_.clear();
@@ -91,20 +94,24 @@ SessionResult ConnectionSession::processFrames(std::string_view bytes) {
     if (decoded.status == DecodeStatus::kError) {
         return fail(decoded.error, 501);
     }
+
     for (const Frame& frame : frames) {
         if (frame.type == kFrameHeartbeat) {
             continue;
         }
+
         if (frame.type == kFrameMethod) {
             const SessionResult result =
                 handleMethod(frame.channel, frame.payload);
             if (!result.ok) return result;
             continue;
         }
+
         const SessionResult result =
             handleContentFrame(frame.channel, frame);
         if (!result.ok) return result;
     }
+
     return SessionResult{};
 }
 
@@ -120,6 +127,7 @@ SessionResult ConnectionSession::handleMethod(uint16_t channel,
         if (channel != 0) {
             return fail("connection method received on non-zero channel", 504);
         }
+
         return handleConnectionMethod(header);
     }
 
@@ -131,30 +139,37 @@ SessionResult ConnectionSession::handleMethod(uint16_t channel,
         if (channel == 0) {
             return fail("channel method received on channel 0", 504);
         }
+
         return handleChannelMethod(channel, header);
     }
 
     if (channel == 0) {
         return fail("business method received on channel 0", 503);
     }
+
     if (!isChannelOpen(channel)) {
         return sendChannelError(channel, 504, header.class_id,
                                 header.method_id, "channel is not open");
     }
+
     if (virtual_host_) {
         if (header.class_id == kExchangeClassId) {
             return handleExchangeMethod(channel, header);
         }
+
         if (header.class_id == kQueueClassId) {
             return handleQueueMethod(channel, header);
         }
+
         if (header.class_id == kBasicClassId) {
             return handleBasicMethod(channel, header);
         }
+
         if (header.class_id == kConfirmClassId) {
             return handleConfirmMethod(channel, header);
         }
     }
+
     return sendChannelError(channel, 540, header.class_id, header.method_id,
                             "method not implemented");
 }
@@ -171,11 +186,13 @@ SessionResult ConnectionSession::handleExchangeMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid exchange.declare");
         }
+
         if (declare.passive && !virtual_host_->hasExchange(declare.exchange)) {
             return sendChannelError(channel, 404, kExchangeClassId,
                                     static_cast<uint16_t>(method),
                                     "exchange not found");
         }
+
         broker::ExchangeSpec spec;
         spec.name = declare.exchange;
         spec.type = declare.type;
@@ -190,11 +207,13 @@ SessionResult ConnectionSession::handleExchangeMethod(
                                     static_cast<uint16_t>(method),
                                     result.error);
         }
+
         if (!declare.no_wait) {
             return sendMethodOnChannel(
                 channel, kExchangeClassId,
                 static_cast<uint16_t>(ExchangeMethodId::DeclareOk), "");
         }
+
         return SessionResult{};
     }
 
@@ -206,6 +225,7 @@ SessionResult ConnectionSession::handleExchangeMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid exchange.delete");
         }
+
         const broker::BrokerResult result = virtual_host_->deleteExchange(
             delete_exchange.exchange, delete_exchange.if_unused);
         if (!result.ok) {
@@ -214,11 +234,13 @@ SessionResult ConnectionSession::handleExchangeMethod(
                                     static_cast<uint16_t>(method),
                                     result.error);
         }
+
         if (!delete_exchange.no_wait) {
             return sendMethodOnChannel(
                 channel, kExchangeClassId,
                 static_cast<uint16_t>(ExchangeMethodId::DeleteOk), "");
         }
+
         return SessionResult{};
     }
 
@@ -239,15 +261,18 @@ SessionResult ConnectionSession::handleQueueMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid queue.declare");
         }
+
         if (declare.queue.empty()) {
             declare.queue =
                 "amq.gen-" + std::to_string(++generated_queue_seq_);
         }
+
         if (declare.passive && !virtual_host_->hasQueue(declare.queue)) {
             return sendChannelError(channel, 404, kQueueClassId,
                                     static_cast<uint16_t>(method),
                                     "queue not found");
         }
+
         broker::QueueSpec spec;
         spec.name = declare.queue;
         spec.durable = declare.durable;
@@ -268,6 +293,7 @@ SessionResult ConnectionSession::handleQueueMethod(
             message_ttl_ms > 0) {
             spec.message_ttl_ms = message_ttl_ms;
         }
+
         const broker::BrokerResult result =
             virtual_host_->declareQueue(spec, this);
         if (!result.ok) {
@@ -275,6 +301,7 @@ SessionResult ConnectionSession::handleQueueMethod(
                                     static_cast<uint16_t>(method),
                                     result.error);
         }
+
         if (!declare.no_wait) {
             QueueDeclareOk ok;
             ok.queue = declare.queue;
@@ -286,6 +313,7 @@ SessionResult ConnectionSession::handleQueueMethod(
                 static_cast<uint16_t>(QueueMethodId::DeclareOk),
                 encodeQueueDeclareOk(ok));
         }
+
         return SessionResult{};
     }
 
@@ -297,6 +325,7 @@ SessionResult ConnectionSession::handleQueueMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid queue.bind");
         }
+
         const broker::BrokerResult result =
             virtual_host_->bind(bind.exchange, bind.queue, bind.routing_key);
         if (!result.ok) {
@@ -304,11 +333,13 @@ SessionResult ConnectionSession::handleQueueMethod(
                                     static_cast<uint16_t>(method),
                                     result.error);
         }
+
         if (!bind.no_wait) {
             return sendMethodOnChannel(
                 channel, kQueueClassId,
                 static_cast<uint16_t>(QueueMethodId::BindOk), "");
         }
+
         return SessionResult{};
     }
 
@@ -320,6 +351,7 @@ SessionResult ConnectionSession::handleQueueMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid queue.unbind");
         }
+
         const broker::BrokerResult result = virtual_host_->unbind(
             unbind.exchange, unbind.queue, unbind.routing_key);
         if (!result.ok) {
@@ -327,6 +359,7 @@ SessionResult ConnectionSession::handleQueueMethod(
                                     static_cast<uint16_t>(method),
                                     result.error);
         }
+
         return sendMethodOnChannel(
             channel, kQueueClassId,
             static_cast<uint16_t>(QueueMethodId::UnbindOk), "");
@@ -340,6 +373,7 @@ SessionResult ConnectionSession::handleQueueMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid queue.purge");
         }
+
         const broker::BrokerResult result =
             virtual_host_->purgeQueue(purge.queue);
         if (!result.ok) {
@@ -347,6 +381,7 @@ SessionResult ConnectionSession::handleQueueMethod(
                                     static_cast<uint16_t>(method),
                                     result.error);
         }
+
         if (!purge.no_wait) {
             QueuePurgeOk ok;
             ok.message_count = result.count;
@@ -355,6 +390,7 @@ SessionResult ConnectionSession::handleQueueMethod(
                 static_cast<uint16_t>(QueueMethodId::PurgeOk),
                 encodeQueuePurgeOk(ok));
         }
+
         return SessionResult{};
     }
 
@@ -366,6 +402,7 @@ SessionResult ConnectionSession::handleQueueMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid queue.delete");
         }
+
         const broker::BrokerResult result = virtual_host_->deleteQueue(
             delete_queue.queue, delete_queue.if_unused, delete_queue.if_empty);
         if (!result.ok) {
@@ -373,6 +410,7 @@ SessionResult ConnectionSession::handleQueueMethod(
                                     static_cast<uint16_t>(method),
                                     result.error);
         }
+
         if (!delete_queue.no_wait) {
             QueueDeleteOk ok;
             ok.message_count = result.count;
@@ -381,6 +419,7 @@ SessionResult ConnectionSession::handleQueueMethod(
                 static_cast<uint16_t>(QueueMethodId::DeleteOk),
                 encodeQueueDeleteOk(ok));
         }
+
         return SessionResult{};
     }
 
@@ -401,6 +440,12 @@ SessionResult ConnectionSession::handleBasicMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid basic.publish");
         }
+
+        if (pending_content_.find(channel) != pending_content_.end()) {
+            return fail("basic.publish while content frames are pending", 505,
+                        kBasicClassId, static_cast<uint16_t>(method));
+        }
+
         PendingContent pending;
         pending.publish = std::move(publish);
         pending_content_[channel] = std::move(pending);
@@ -415,11 +460,13 @@ SessionResult ConnectionSession::handleBasicMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid basic.consume");
         }
+
         if (!virtual_host_->hasQueue(consume.queue)) {
             return sendChannelError(channel, 404, kBasicClassId,
                                     static_cast<uint16_t>(method),
                                     "queue not found");
         }
+
         const std::string client_tag = consume.consumer_tag.empty()
                                            ? "ctag-" +
                                                  std::to_string(
@@ -458,7 +505,7 @@ SessionResult ConnectionSession::handleBasicMethod(
                    const broker::Message& message) {
                 deliverToConsumer(tag, queue, message);
             },
-            consume.no_ack, channel_prefetch_[channel], consume.no_local,
+            consume.no_ack, channels_[channel].prefetch, consume.no_local,
             consume.exclusive);
         if (!result.ok) {
             broker_consumers_.erase(broker_tag);
@@ -467,6 +514,7 @@ SessionResult ConnectionSession::handleBasicMethod(
                                     static_cast<uint16_t>(method),
                                     result.error);
         }
+
         return SessionResult{};
     }
 
@@ -478,7 +526,8 @@ SessionResult ConnectionSession::handleBasicMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid basic.qos");
         }
-        channel_prefetch_[channel] = qos.prefetch_count;
+
+        channels_[channel].prefetch = qos.prefetch_count;
         return sendMethodOnChannel(
             channel, kBasicClassId,
             static_cast<uint16_t>(BasicMethodId::QosOk), "");
@@ -492,6 +541,7 @@ SessionResult ConnectionSession::handleBasicMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid basic.cancel");
         }
+
         const auto lookup_key =
             std::make_pair(channel, cancel.consumer_tag);
         const auto lookup_it = client_consumer_lookup_.find(lookup_key);
@@ -500,6 +550,7 @@ SessionResult ConnectionSession::handleBasicMethod(
                                     static_cast<uint16_t>(method),
                                     "consumer not found");
         }
+
         const std::string broker_tag = lookup_it->second;
         const auto broker_it = broker_consumers_.find(broker_tag);
         if (broker_it == broker_consumers_.end()) {
@@ -508,6 +559,7 @@ SessionResult ConnectionSession::handleBasicMethod(
                                     static_cast<uint16_t>(method),
                                     "consumer not found");
         }
+
         const std::string queue = broker_it->second.queue;
         virtual_host_->unregisterConsumer(queue, broker_tag, this);
         broker_consumers_.erase(broker_it);
@@ -518,6 +570,7 @@ SessionResult ConnectionSession::handleBasicMethod(
                 static_cast<uint16_t>(BasicMethodId::CancelOk),
                 encodeBasicCancelOk(cancel.consumer_tag));
         }
+
         return SessionResult{};
     }
 
@@ -529,7 +582,8 @@ SessionResult ConnectionSession::handleBasicMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid basic.ack");
         }
-        auto& channel_map = delivery_tag_to_message_[channel];
+
+        auto& channel_map = channels_[channel].delivery_tag_to_message;
         if (ack.multiple) {
             std::vector<uint64_t> message_ids;
             for (auto it = channel_map.begin(); it != channel_map.end();) {
@@ -540,6 +594,7 @@ SessionResult ConnectionSession::handleBasicMethod(
                     ++it;
                 }
             }
+
             for (const uint64_t message_id : message_ids) {
                 const broker::BrokerResult result =
                     virtual_host_->ackMessage(message_id);
@@ -550,14 +605,17 @@ SessionResult ConnectionSession::handleBasicMethod(
                                             result.error);
                 }
             }
+
             return SessionResult{};
         }
+
         const auto it = channel_map.find(ack.delivery_tag);
         if (it == channel_map.end()) {
             return sendChannelError(channel, 406, kBasicClassId,
                                     static_cast<uint16_t>(method),
                                     "unknown delivery tag");
         }
+
         const uint64_t message_id = it->second;
         channel_map.erase(it);
         const broker::BrokerResult result =
@@ -567,6 +625,7 @@ SessionResult ConnectionSession::handleBasicMethod(
                                     static_cast<uint16_t>(method),
                                     result.error);
         }
+
         return SessionResult{};
     }
 
@@ -578,13 +637,15 @@ SessionResult ConnectionSession::handleBasicMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid basic.reject");
         }
-        auto& channel_map = delivery_tag_to_message_[channel];
+
+        auto& channel_map = channels_[channel].delivery_tag_to_message;
         const auto it = channel_map.find(reject.delivery_tag);
         if (it == channel_map.end()) {
             return sendChannelError(channel, 406, kBasicClassId,
                                     static_cast<uint16_t>(method),
                                     "unknown delivery tag");
         }
+
         const broker::BrokerResult result = virtual_host_->rejectMessage(
             it->second, reject.requeue);
         if (!result.ok) {
@@ -592,6 +653,7 @@ SessionResult ConnectionSession::handleBasicMethod(
                                     static_cast<uint16_t>(method),
                                     result.error);
         }
+
         channel_map.erase(it);
         return SessionResult{};
     }
@@ -605,12 +667,14 @@ SessionResult ConnectionSession::handleBasicMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid basic.recover");
         }
+
         virtual_host_->requeueUnacked(this);
         if (method == BasicMethodId::Recover) {
             return sendMethodOnChannel(
                 channel, kBasicClassId,
                 static_cast<uint16_t>(BasicMethodId::RecoverOk), "");
         }
+
         return SessionResult{};
     }
 
@@ -622,6 +686,7 @@ SessionResult ConnectionSession::handleBasicMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid basic.get");
         }
+
         if (!virtual_host_->hasQueue(get.queue)) {
             return sendChannelError(channel, 404, kBasicClassId,
                                     static_cast<uint16_t>(method),
@@ -638,14 +703,16 @@ SessionResult ConnectionSession::handleBasicMethod(
                                     static_cast<uint16_t>(method),
                                     result.error);
         }
+
         if (!has_message) {
             return sendMethodOnChannel(
                 channel, kBasicClassId,
                 static_cast<uint16_t>(BasicMethodId::GetEmpty), "");
         }
 
-        const uint64_t delivery_tag = ++delivery_seq_[channel];
-        delivery_tag_to_message_[channel][delivery_tag] = message.id;
+        auto& channel_state = channels_[channel];
+        const uint64_t delivery_tag = ++channel_state.delivery_seq;
+        channel_state.delivery_tag_to_message[delivery_tag] = message.id;
         BasicGetOk ok;
         ok.delivery_tag = delivery_tag;
         ok.redelivered = message.redelivered;
@@ -681,15 +748,18 @@ SessionResult ConnectionSession::handleConfirmMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid confirm.select");
         }
-        confirm_channels_.insert(channel);
+
+        channels_[channel].confirm_mode = true;
         if (!select.no_wait) {
             return sendMethodOnChannel(
                 channel, kConfirmClassId,
                 static_cast<uint16_t>(ConfirmMethodId::SelectOk),
                 encodeConfirmSelectOk());
         }
+
         return SessionResult{};
     }
+
     return sendChannelError(channel, 540, kConfirmClassId,
                             static_cast<uint16_t>(method),
                             "confirm method not implemented");
@@ -716,14 +786,17 @@ void ConnectionSession::deliverToConsumer(
     if (it == broker_consumers_.end()) return;
     const uint16_t channel = it->second.channel;
     const std::string client_tag = it->second.client_tag;
+    const auto channel_it = channels_.find(channel);
+    if (channel_it == channels_.end()) return;
 
     BasicDeliver deliver;
     deliver.consumer_tag = client_tag;
-    deliver.delivery_tag = ++delivery_seq_[channel];
+    deliver.delivery_tag = ++channel_it->second.delivery_seq;
     deliver.redelivered = message.redelivered;
     deliver.exchange = message.exchange;
     deliver.routing_key = message.routing_key;
-    delivery_tag_to_message_[channel][deliver.delivery_tag] = message.id;
+    channel_it->second.delivery_tag_to_message[deliver.delivery_tag] =
+        message.id;
     sendMethodOnChannel(
         channel, kBasicClassId,
         static_cast<uint16_t>(BasicMethodId::Deliver),
@@ -741,17 +814,20 @@ SessionResult ConnectionSession::handleContentFrame(uint16_t channel,
     if (it == pending_content_.end()) {
         return fail("content frame without a pending publish", 505);
     }
+
     PendingContent& pending = it->second;
 
     if (frame.type == kFrameHeader) {
         if (pending.header_received) {
             return fail("duplicate content header frame", 505);
         }
+
         ContentHeaderInfo info;
         std::string error;
         if (!decodeContentHeader(frame.payload, info, error)) {
             return fail(error, 502);
         }
+
         pending.header = info;
         pending.header_payload = frame.payload;
         pending.header_received = true;
@@ -762,13 +838,16 @@ SessionResult ConnectionSession::handleContentFrame(uint16_t channel,
         if (!pending.header_received) {
             return fail("content body before content header", 505);
         }
+
         pending.body.append(frame.payload.data(), frame.payload.size());
         if (pending.body.size() > pending.header.body_size) {
             return fail("content body exceeds declared body size", 505);
         }
+
         if (pending.body.size() == pending.header.body_size) {
             return finishPendingContent(channel, pending);
         }
+
         return SessionResult{};
     }
 
@@ -796,12 +875,13 @@ SessionResult ConnectionSession::finishPendingContent(
         }
     }
 
-    const bool confirm_mode =
-        confirm_channels_.find(channel) != confirm_channels_.end();
+    auto& channel_state = channels_[channel];
+    const bool confirm_mode = channel_state.confirm_mode;
     uint64_t publish_tag = 0;
     if (confirm_mode) {
-        publish_tag = ++publish_seq_[channel];
+        publish_tag = ++channel_state.publish_seq;
     }
+
     size_t delivered = 0;
     broker::BrokerResult result = virtual_host_->publish(
         pending.publish.exchange, pending.publish.routing_key, message,
@@ -815,6 +895,7 @@ SessionResult ConnectionSession::finishPendingContent(
                 static_cast<uint16_t>(BasicMethodId::Nack),
                 encodeBasicNack(nack));
         }
+
         return sendChannelError(channel, result.reply_code, kBasicClassId,
                                 static_cast<uint16_t>(
                                     BasicMethodId::Publish),
@@ -846,6 +927,7 @@ SessionResult ConnectionSession::finishPendingContent(
             offset += count;
         }
     }
+
     if (confirm_mode) {
         BasicAck confirm_ack;
         confirm_ack.delivery_tag = publish_tag;
@@ -854,6 +936,7 @@ SessionResult ConnectionSession::finishPendingContent(
             static_cast<uint16_t>(BasicMethodId::Ack),
             encodeBasicAck(confirm_ack));
     }
+
     return SessionResult{};
 }
 
@@ -869,11 +952,19 @@ SessionResult ConnectionSession::handleChannelMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid channel.open");
         }
+
         if (it != channels_.end()) {
             return sendChannelError(channel, 504, kChannelClassId,
                                     static_cast<uint16_t>(method),
                                     "channel already open");
         }
+
+        if (channel_max_ != 0 && channel > channel_max_) {
+            return sendChannelError(channel, 504, kChannelClassId,
+                                    static_cast<uint16_t>(method),
+                                    "channel number exceeds channel-max");
+        }
+
         channels_[channel] = ChannelState{};
         sendFrame(kFrameMethod, channel,
                   encodeMethodHeader(kChannelClassId,
@@ -891,8 +982,9 @@ SessionResult ConnectionSession::handleChannelMethod(
 
     if (it->second.lifecycle == ChannelLifecycle::kClosing) {
         if (method == ChannelMethodId::CloseOk) {
-            channels_.erase(channel);
+            closeChannel(channel);
         }
+
         return SessionResult{};
     }
 
@@ -904,6 +996,7 @@ SessionResult ConnectionSession::handleChannelMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid channel.flow");
         }
+
         it->second.flow_active = flow.active;
         sendFrame(kFrameMethod, channel,
                   encodeMethodHeader(kChannelClassId,
@@ -927,18 +1020,42 @@ SessionResult ConnectionSession::handleChannelMethod(
                                     static_cast<uint16_t>(method),
                                     "invalid channel.close");
         }
+
         sendFrame(kFrameMethod, channel,
                   encodeMethodHeader(kChannelClassId,
                                      static_cast<uint16_t>(
                                          ChannelMethodId::CloseOk),
                                      encodeChannelCloseOk()));
-        channels_.erase(channel);
+        closeChannel(channel);
         return SessionResult{};
     }
 
     return sendChannelError(channel, 540, kChannelClassId,
                             static_cast<uint16_t>(method),
                             "channel method not implemented");
+}
+
+void ConnectionSession::closeChannel(uint16_t channel) {
+    for (auto it = broker_consumers_.begin(); it != broker_consumers_.end();) {
+        if (it->second.channel != channel) {
+            ++it;
+            continue;
+        }
+
+        const std::string broker_tag = it->first;
+        const std::string queue = it->second.queue;
+        client_consumer_lookup_.erase({channel, it->second.client_tag});
+        it = broker_consumers_.erase(it);
+        if (virtual_host_) {
+            // Unregister first: redelivery of the requeued messages must not
+            // go back to the consumer that is going away.
+            virtual_host_->unregisterConsumer(queue, broker_tag, this);
+            virtual_host_->requeueConsumerUnacked(broker_tag, this);
+        }
+    }
+
+    channels_.erase(channel);
+    pending_content_.erase(channel);
 }
 
 SessionResult ConnectionSession::sendChannelError(
@@ -953,7 +1070,9 @@ SessionResult ConnectionSession::sendChannelError(
               encodeMethodHeader(kChannelClassId,
                                  static_cast<uint16_t>(ChannelMethodId::Close),
                                  encodeChannelClose(close)));
-    channels_[channel] = ChannelState{ChannelLifecycle::kClosing, true};
+    ChannelState& channel_state = channels_[channel];
+    channel_state.lifecycle = ChannelLifecycle::kClosing;
+    channel_state.flow_active = true;
     return SessionResult{};
 }
 
@@ -965,19 +1084,23 @@ SessionResult ConnectionSession::handleConnectionMethod(
         if (state_ != ConnectionState::kWaitStartOk) {
             return fail("unexpected connection.start-ok", 503);
         }
+
         std::string error;
         ConnectionStartOk start_ok;
         if (!decodeConnectionStartOk(header.arguments, start_ok, error)) {
             return fail(error, 502);
         }
+
         if (start_ok.mechanism != "PLAIN") {
             return fail("unsupported SASL mechanism", 530);
         }
+
         std::string user;
         std::string password;
         if (!decodePlainResponse(start_ok.response, user, password)) {
             return fail("authentication failed", 403);
         }
+
         bool authenticated = false;
         if (auth_callback_) {
             authenticated = auth_callback_(user, password);
@@ -985,6 +1108,7 @@ SessionResult ConnectionSession::handleConnectionMethod(
             authenticated =
                 user == config_.username && password == config_.password;
         }
+
         if (!authenticated) return fail("authentication failed", 403);
         authenticated_user_ = user;
 
@@ -1005,11 +1129,17 @@ SessionResult ConnectionSession::handleConnectionMethod(
         if (state_ != ConnectionState::kWaitTuneOk) {
             return fail("unexpected connection.tune-ok", 503);
         }
+
         std::string error;
         ConnectionTune tune_ok;
         if (!decodeConnectionTune(header.arguments, tune_ok, error)) {
             return fail(error, 502);
         }
+
+        if (tune_ok.frame_max != 0 && tune_ok.frame_max < kFrameMinSize) {
+            return fail("frame-max below AMQP frame-min-size (4096)", 502);
+        }
+
         channel_max_ =
             tune_ok.channel_max == 0
                 ? config_.channel_max
@@ -1031,17 +1161,20 @@ SessionResult ConnectionSession::handleConnectionMethod(
         if (state_ != ConnectionState::kWaitOpen) {
             return fail("unexpected connection.open", 503);
         }
+
         std::string error;
         ConnectionOpen open;
         if (!decodeConnectionOpen(header.arguments, open, error)) {
             return fail(error, 502);
         }
+
         std::string vhost_name =
             open.virtual_host.empty() ? "/" : open.virtual_host;
         if (vhost_resolver_) {
             if (authenticated_user_.empty()) {
                 return fail("authentication required", 403);
             }
+
             virtual_host_ =
                 vhost_resolver_(authenticated_user_, vhost_name);
             if (!virtual_host_) {
@@ -1050,6 +1183,7 @@ SessionResult ConnectionSession::handleConnectionMethod(
         } else if (vhost_name != config_.virtual_host) {
             return fail("unknown virtual host", 402);
         }
+
         const std::string open_ok = encodeMethodHeader(
             kConnectionClassId,
             static_cast<uint16_t>(ConnectionMethodId::OpenOk),
@@ -1065,6 +1199,7 @@ SessionResult ConnectionSession::handleConnectionMethod(
         if (!decodeConnectionClose(header.arguments, close, error)) {
             return fail(error, 502);
         }
+
         const std::string close_ok = encodeMethodHeader(
             kConnectionClassId,
             static_cast<uint16_t>(ConnectionMethodId::CloseOk), "");
@@ -1077,6 +1212,7 @@ SessionResult ConnectionSession::handleConnectionMethod(
         if (state_ != ConnectionState::kClosing) {
             return fail("unexpected connection.close-ok", 503);
         }
+
         state_ = ConnectionState::kClosed;
         return SessionResult{};
     }
@@ -1095,6 +1231,7 @@ size_t ConnectionSession::openChannelCount() const {
     for (const auto& entry : channels_) {
         if (entry.second.lifecycle == ChannelLifecycle::kOpen) ++count;
     }
+
     return count;
 }
 
@@ -1133,6 +1270,7 @@ SessionResult ConnectionSession::fail(const std::string& message,
         sendFrame(kFrameMethod, 0, payload);
         state_ = ConnectionState::kClosed;
     }
+
     return SessionResult{false, message, reply_code, failing_class_id,
                          failing_method_id};
 }

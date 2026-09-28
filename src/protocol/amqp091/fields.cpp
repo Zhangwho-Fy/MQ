@@ -3,33 +3,12 @@
 #include "mq/protocol/amqp091/wire_reader.hpp"
 #include "mq/protocol/amqp091/wire_writer.hpp"
 
+#include <cstddef>
 #include <cstring>
 
 namespace mq::amqp091 {
 
 namespace {
-
-bool writeShortString(WireWriter& writer, const std::string& value) {
-    if (value.size() > 255) return false;
-    writer.writeU8(static_cast<uint8_t>(value.size()));
-    writer.writeBytes(value);
-    return true;
-}
-
-bool readShortString(WireReader& reader, std::string& value) {
-    uint8_t length = 0;
-    std::string_view bytes;
-    if (!reader.readU8(length) || !reader.readBytes(length, bytes)) return false;
-    value.assign(bytes.data(), bytes.size());
-    return true;
-}
-
-bool writeLongString(WireWriter& writer, const std::string& value) {
-    if (value.size() > 0xFFFFFFFFULL) return false;
-    writer.writeU32(static_cast<uint32_t>(value.size()));
-    writer.writeBytes(value);
-    return true;
-}
 
 bool writeFieldValueBytes(WireWriter& writer, const FieldTableEntry& entry) {
     if (!writeShortString(writer, entry.name)) return false;
@@ -126,6 +105,7 @@ const std::string* FieldTable::findString(const std::string& name) const {
             }
         }
     }
+
     return nullptr;
 }
 
@@ -136,6 +116,7 @@ bool FieldTable::findBool(const std::string& name, bool& value) const {
             return true;
         }
     }
+
     return false;
 }
 
@@ -154,6 +135,7 @@ bool FieldTable::findInt64(const std::string& name, int64_t& value) const {
             value = static_cast<int32_t>(raw);
             return true;
         }
+
         if (entry.type == 'l' && entry.value.size() == 8) {
             uint64_t raw = 0;
             for (size_t i = 0; i < 8; ++i) {
@@ -161,10 +143,12 @@ bool FieldTable::findInt64(const std::string& name, int64_t& value) const {
                       static_cast<uint64_t>(
                           static_cast<uint8_t>(entry.value[i]));
             }
+
             value = static_cast<int64_t>(raw);
             return true;
         }
     }
+
     return false;
 }
 
@@ -173,6 +157,7 @@ std::string encodeFieldTable(const FieldTable& table) {
     for (const auto& entry : table.entries()) {
         writeFieldValueBytes(body, entry);
     }
+
     WireWriter writer;
     writer.writeU32(static_cast<uint32_t>(body.bytes().size()));
     writer.writeBytes(body.bytes());
@@ -188,17 +173,21 @@ bool decodeFieldTableBody(std::string_view body, FieldTable& table,
             error = "invalid field table key";
             return false;
         }
+
         uint8_t type = 0;
         if (!reader.readU8(type)) {
             error = "truncated field value type";
             return false;
         }
+
         if (!readFieldValue(reader, static_cast<char>(type), entry)) {
             error = "invalid or unsupported field value type";
             return false;
         }
+
         table.addEntry(std::move(entry));
     }
+
     return true;
 }
 
@@ -210,11 +199,13 @@ bool decodeFieldTable(std::string_view bytes, FieldTable& table,
         error = "truncated field table length";
         return false;
     }
+
     std::string_view body;
     if (!reader.readBytes(table_length, body)) {
         error = "field table length mismatch";
         return false;
     }
+
     return decodeFieldTableBody(body, table, error);
 }
 

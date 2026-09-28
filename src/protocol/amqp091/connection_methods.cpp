@@ -3,37 +3,10 @@
 #include "mq/protocol/amqp091/wire_reader.hpp"
 #include "mq/protocol/amqp091/wire_writer.hpp"
 
+
 namespace mq::amqp091 {
 
 namespace {
-
-bool writeShortString(WireWriter& writer, std::string_view value) {
-    if (value.size() > 255) return false;
-    writer.writeU8(static_cast<uint8_t>(value.size()));
-    writer.writeBytes(value);
-    return true;
-}
-
-bool readShortString(WireReader& reader, std::string& value) {
-    uint8_t length = 0;
-    std::string_view bytes;
-    if (!reader.readU8(length) || !reader.readBytes(length, bytes)) return false;
-    value.assign(bytes.data(), bytes.size());
-    return true;
-}
-
-void writeLongString(WireWriter& writer, std::string_view value) {
-    writer.writeU32(static_cast<uint32_t>(value.size()));
-    writer.writeBytes(value);
-}
-
-bool readLongString(WireReader& reader, std::string& value) {
-    uint32_t length = 0;
-    std::string_view bytes;
-    if (!reader.readU32(length) || !reader.readBytes(length, bytes)) return false;
-    value.assign(bytes.data(), bytes.size());
-    return true;
-}
 
 bool readFieldTable(WireReader& reader, FieldTable& table, std::string& error) {
     uint32_t length = 0;
@@ -42,6 +15,7 @@ bool readFieldTable(WireReader& reader, FieldTable& table, std::string& error) {
         error = "truncated field table";
         return false;
     }
+
     return decodeFieldTableBody(body, table, error);
 }
 
@@ -65,6 +39,7 @@ bool decodeMethodHeader(std::string_view payload, MethodHeader& header,
         error = "truncated method header";
         return false;
     }
+
     header.class_id = class_id;
     header.method_id = method_id;
     header.arguments.assign(payload.data() + reader.position(),
@@ -91,12 +66,14 @@ bool decodeConnectionStart(std::string_view arguments, ConnectionStart& start,
         error = "truncated connection.start version";
         return false;
     }
+
     if (!readFieldTable(reader, start.server_properties, error)) return false;
     if (!readLongString(reader, start.mechanisms) ||
         !readLongString(reader, start.locales)) {
         error = "truncated connection.start mechanisms/locales";
         return false;
     }
+
     return true;
 }
 
@@ -116,12 +93,14 @@ bool decodeConnectionStartOk(std::string_view arguments,
     if (!readFieldTable(reader, start_ok.client_properties, error)) {
         return false;
     }
+
     if (!readShortString(reader, start_ok.mechanism) ||
         !readLongString(reader, start_ok.response) ||
         !readShortString(reader, start_ok.locale)) {
         error = "truncated connection.start-ok";
         return false;
     }
+
     return true;
 }
 
@@ -141,6 +120,7 @@ bool decodeConnectionTune(std::string_view arguments, ConnectionTune& tune,
         error = "truncated connection.tune";
         return false;
     }
+
     return true;
 }
 
@@ -158,6 +138,7 @@ bool decodeConnectionOpen(std::string_view arguments, ConnectionOpen& open,
         error = "truncated connection.open virtual-host";
         return false;
     }
+
     return true;
 }
 
@@ -185,6 +166,7 @@ bool decodeConnectionClose(std::string_view arguments, ConnectionClose& close,
         error = "truncated connection.close";
         return false;
     }
+
     return true;
 }
 

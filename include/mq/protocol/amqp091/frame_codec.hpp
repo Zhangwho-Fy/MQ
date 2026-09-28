@@ -1,7 +1,7 @@
 #ifndef MQ_PROTOCOL_AMQP091_FRAME_CODEC_HPP
 #define MQ_PROTOCOL_AMQP091_FRAME_CODEC_HPP
 
-#include "frame.hpp"
+#include "mq/protocol/amqp091/frame.hpp"
 
 #include <cstdint>
 #include <string>

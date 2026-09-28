@@ -3,24 +3,10 @@
 #include "mq/protocol/amqp091/wire_reader.hpp"
 #include "mq/protocol/amqp091/wire_writer.hpp"
 
+
 namespace mq::amqp091 {
 
 namespace {
-
-bool writeShortString(WireWriter& writer, const std::string& value) {
-    if (value.size() > 255) return false;
-    writer.writeU8(static_cast<uint8_t>(value.size()));
-    writer.writeBytes(value);
-    return true;
-}
-
-bool readShortString(WireReader& reader, std::string& value) {
-    uint8_t length = 0;
-    std::string_view bytes;
-    if (!reader.readU8(length) || !reader.readBytes(length, bytes)) return false;
-    value.assign(bytes.data(), bytes.size());
-    return true;
-}
 
 std::string encodeBitArgument(bool value) {
     WireWriter writer;
@@ -37,6 +23,7 @@ bool decodeBitArgument(std::string_view arguments, bool& value,
         error = "invalid channel flow bit argument";
         return false;
     }
+
     value = (octet & 0x80) != 0;
     return true;
 }
@@ -55,6 +42,7 @@ bool decodeChannelOpen(std::string_view arguments, std::string& error) {
         error = "invalid channel.open reserved field";
         return false;
     }
+
     return true;
 }
 
@@ -100,6 +88,7 @@ bool decodeChannelClose(std::string_view arguments, ChannelClose& close,
         error = "truncated channel.close";
         return false;
     }
+
     return true;
 }
 

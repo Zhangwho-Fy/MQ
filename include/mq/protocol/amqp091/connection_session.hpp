@@ -1,20 +1,20 @@
 #ifndef MQ_PROTOCOL_AMQP091_CONNECTION_SESSION_HPP
 #define MQ_PROTOCOL_AMQP091_CONNECTION_SESSION_HPP
 
-#include "connection_methods.hpp"
-#include "channel_methods.hpp"
-#include "basic_methods.hpp"
-#include "confirm_methods.hpp"
-#include "exchange_methods.hpp"
-#include "frame_codec.hpp"
-#include "queue_methods.hpp"
 #include "mq/broker/virtual_host.hpp"
+#include "mq/protocol/amqp091/basic_methods.hpp"
+#include "mq/protocol/amqp091/channel_methods.hpp"
+#include "mq/protocol/amqp091/confirm_methods.hpp"
+#include "mq/protocol/amqp091/connection_methods.hpp"
+#include "mq/protocol/amqp091/exchange_methods.hpp"
+#include "mq/protocol/amqp091/frame_codec.hpp"
+#include "mq/protocol/amqp091/queue_methods.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
-#include <set>
 #include <string>
 #include <string_view>
 
@@ -85,6 +85,11 @@ private:
     struct ChannelState {
         ChannelLifecycle lifecycle = ChannelLifecycle::kOpen;
         bool flow_active = true;
+        uint16_t prefetch = 0;
+        bool confirm_mode = false;
+        uint64_t delivery_seq = 0;
+        uint64_t publish_seq = 0;
+        std::map<uint64_t, uint64_t> delivery_tag_to_message;
     };
 
     struct PendingContent {
@@ -104,10 +109,20 @@ private:
 
     SessionResult processFrames(std::string_view bytes);
     SessionResult handleMethod(uint16_t channel, std::string_view payload);
+
+    SessionResult handleConnectionMethod(const MethodHeader& header);
+    SessionResult handleChannelMethod(uint16_t channel,
+                                      const MethodHeader& header);
+    void closeChannel(uint16_t channel);
+    SessionResult handleExchangeMethod(uint16_t channel,
+                                       const MethodHeader& header);
+    SessionResult handleQueueMethod(uint16_t channel,
+                                    const MethodHeader& header);
     SessionResult handleBasicMethod(uint16_t channel,
                                     const MethodHeader& header);
     SessionResult handleConfirmMethod(uint16_t channel,
                                       const MethodHeader& header);
+
     SessionResult handleContentFrame(uint16_t channel, const Frame& frame);
     SessionResult finishPendingContent(uint16_t channel,
                                        PendingContent& pending);
@@ -116,52 +131,44 @@ private:
                            const broker::Message& message);
     void sendContent(uint16_t channel, const std::string& header_payload,
                      const std::string& body);
-    SessionResult handleConnectionMethod(const MethodHeader& header);
-    SessionResult handleChannelMethod(uint16_t channel,
-                                      const MethodHeader& header);
-    SessionResult handleExchangeMethod(uint16_t channel,
-                                       const MethodHeader& header);
-    SessionResult handleQueueMethod(uint16_t channel,
-                                    const MethodHeader& header);
+
+    SessionResult sendMethod(uint16_t class_id, uint16_t method_id,
+                             const std::string& arguments);
     SessionResult sendMethodOnChannel(uint16_t channel, uint16_t class_id,
                                       uint16_t method_id,
                                       const std::string& arguments);
+    void sendFrame(uint8_t type, uint16_t channel, std::string_view payload);
     SessionResult sendChannelError(uint16_t channel, uint16_t reply_code,
                                    uint16_t failing_class_id,
                                    uint16_t failing_method_id,
                                    const std::string& text);
-    SessionResult sendMethod(uint16_t class_id, uint16_t method_id,
-                             const std::string& arguments);
     SessionResult fail(const std::string& message, uint16_t reply_code = 0,
                        uint16_t failing_class_id = 0,
                        uint16_t failing_method_id = 0);
-    void sendFrame(uint8_t type, uint16_t channel, std::string_view payload);
 
     ConnectionConfig config_;
     SendCallback send_;
     FrameDecoder decoder_;
-    ConnectionState state_ = ConnectionState::kAwaitProtocolHeader;
     std::string header_buffer_;
+    ConnectionState state_ = ConnectionState::kAwaitProtocolHeader;
     uint16_t channel_max_ = 0;
     uint32_t frame_max_ = 0;
     uint16_t heartbeat_ = 0;
-    std::map<uint16_t, ChannelState> channels_;
-    std::map<uint16_t, PendingContent> pending_content_;
-    std::map<std::string, SessionConsumer> broker_consumers_;
-    std::map<std::pair<uint16_t, std::string>, std::string>
-        client_consumer_lookup_;
-    std::map<uint16_t, uint64_t> delivery_seq_;
-    std::map<uint16_t, uint16_t> channel_prefetch_;
-    std::map<uint16_t, std::map<uint64_t, uint64_t>>
-        delivery_tag_to_message_;
-    std::set<uint16_t> confirm_channels_;
-    std::map<uint16_t, uint64_t> publish_seq_;
-    uint64_t generated_consumer_seq_ = 0;
-    std::shared_ptr<broker::VirtualHost> virtual_host_;
-    uint64_t generated_queue_seq_ = 0;
+
     AuthCallback auth_callback_;
     VhostResolver vhost_resolver_;
     std::string authenticated_user_;
+    std::shared_ptr<broker::VirtualHost> virtual_host_;
+
+    uint64_t generated_consumer_seq_ = 0;
+    uint64_t generated_queue_seq_ = 0;
+
+    std::map<uint16_t, ChannelState> channels_;
+    std::map<uint16_t, PendingContent> pending_content_;
+
+    std::map<std::string, SessionConsumer> broker_consumers_;
+    std::map<std::pair<uint16_t, std::string>, std::string>
+        client_consumer_lookup_;
 };
 
 }  // namespace mq::amqp091
