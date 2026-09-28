@@ -68,3 +68,8 @@ Makefile
 *~
 .cache/
 .pytest_cache/
+
+# Vendored source archives kept locally only
+mqthird/*.tar.gz
+
+system-design-notes.html
