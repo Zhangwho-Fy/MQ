@@ -1,7 +1,7 @@
 #ifndef MQ_BROKER_BROKER_HPP
 #define MQ_BROKER_BROKER_HPP
 
-#include "virtual_host.hpp"
+#include "mq/broker/virtual_host.hpp"
 
 #include <map>
 #include <memory>

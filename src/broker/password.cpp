@@ -1,5 +1,6 @@
 #include "mq/broker/password.hpp"
 
+#include <cstddef>
 #include <cstring>
 #include <dlfcn.h>
 #include <random>
@@ -37,6 +38,7 @@ std::string toHex(const unsigned char* data, size_t size) {
         out.push_back(digits[(data[i] >> 4) & 0xf]);
         out.push_back(digits[data[i] & 0xf]);
     }
+
     return out;
 }
 
@@ -55,6 +57,7 @@ bool fromHex(const std::string& hex, std::vector<unsigned char>& out) {
         if (hi < 0 || lo < 0) return false;
         out[i] = static_cast<unsigned char>((hi << 4) | lo);
     }
+
     return true;
 }
 
@@ -76,6 +79,7 @@ std::string PasswordHasher::hashPassword(const std::string& password,
                 static_cast<int>(salt.size()), digest)) {
         return {};
     }
+
     return toHex(digest, sizeof(digest));
 }
 
@@ -88,6 +92,7 @@ bool PasswordHasher::verify(const std::string& password,
     for (size_t i = 0; i < actual.size(); ++i) {
         diff |= static_cast<unsigned char>(actual[i] ^ expected_hex[i]);
     }
+
     return diff == 0;
 }
 

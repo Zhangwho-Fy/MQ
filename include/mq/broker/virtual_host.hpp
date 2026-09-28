@@ -1,6 +1,7 @@
 #ifndef MQ_BROKER_VIRTUAL_HOST_HPP
 #define MQ_BROKER_VIRTUAL_HOST_HPP
 
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -120,6 +121,7 @@ public:
                             void* owner, Message* message, bool* has_message,
                             uint32_t* remaining);
     void requeueUnacked(void* owner);
+    void requeueConsumerUnacked(const std::string& consumer_tag, void* owner);
     void disconnectOwner(void* owner);
     size_t unackedCount() const { return unacked_.size(); }
     std::string deadLetterExchange(const std::string& queue) const;
@@ -143,6 +145,10 @@ public:
     uint64_t ackedCount() const;
 
 private:
+    struct ExchangeEntry {
+        ExchangeSpec spec;
+    };
+
     struct QueueEntry {
         QueueSpec spec;
         std::deque<Message> messages;
@@ -175,23 +181,9 @@ private:
     void expireMessages(const std::string& queue);
     void decrementConsumerUnacked(const std::string& queue,
                                   const std::string& consumer_tag);
+    void requeueUnackedMatching(
+        const std::function<bool(const UnackedEntry&)>& match);
     void maybeAutoDelete(const std::string& queue);
-
-    struct ExchangeEntry {
-        ExchangeSpec spec;
-    };
-
-    std::map<std::string, ExchangeEntry> exchanges_;
-    std::map<std::string, QueueEntry> queues_;
-    std::map<std::string, std::vector<ConsumerEntry>> consumers_;
-    std::map<std::string, size_t> consumer_round_robin_;
-    std::map<uint64_t, UnackedEntry> unacked_;
-    uint64_t next_message_id_ = 1;
-    uint64_t published_count_ = 0;
-    uint64_t acked_count_ = 0;
-    std::string data_dir_;
-    void* db_ = nullptr;
-    mutable std::recursive_mutex mutex_;
 
     bool openStorage();
     void closeStorage();
@@ -212,6 +204,20 @@ private:
     void removeQueueLog(const std::string& queue);
     void recoverQueueMessages(const std::string& queue);
     void compactQueueLog(const std::string& queue);
+
+    std::map<std::string, ExchangeEntry> exchanges_;
+    std::map<std::string, QueueEntry> queues_;
+    std::map<std::string, std::vector<ConsumerEntry>> consumers_;
+    std::map<std::string, size_t> consumer_round_robin_;
+    std::map<uint64_t, UnackedEntry> unacked_;
+    uint64_t next_message_id_ = 1;
+
+    uint64_t published_count_ = 0;
+    uint64_t acked_count_ = 0;
+
+    std::string data_dir_;
+    void* db_ = nullptr;
+    mutable std::recursive_mutex mutex_;
 };
 
 }  // namespace mq::broker

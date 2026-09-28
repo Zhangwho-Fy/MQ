@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <chrono>
+#include <cstddef>
 #include <cstring>
 #include <fstream>
 #include <iterator>
@@ -38,9 +39,11 @@ bool topicMatches(const std::string& binding_key,
             bkeys.push_back(binding_key.substr(pos));
             break;
         }
+
         bkeys.push_back(binding_key.substr(pos, dot - pos));
         pos = dot + 1;
     }
+
     pos = 0;
     while (pos <= routing_key.size()) {
         const size_t dot = routing_key.find('.', pos);
@@ -48,6 +51,7 @@ bool topicMatches(const std::string& binding_key,
             rkeys.push_back(routing_key.substr(pos));
             break;
         }
+
         rkeys.push_back(routing_key.substr(pos, dot - pos));
         pos = dot + 1;
     }
@@ -67,9 +71,11 @@ bool topicMatches(const std::string& binding_key,
             } else {
                 dp[j + 1] = false;
             }
+
             previous = current;
         }
     }
+
     return bkeys.empty() ? false : dp[bkeys.size()];
 }
 
@@ -80,6 +86,7 @@ std::string sqlEscape(const std::string& value) {
         if (ch == '\'') out += "''";
         else out += ch;
     }
+
     return out;
 }
 
@@ -90,6 +97,7 @@ bool sqlExec(sqlite3* db, const std::string& sql) {
         sqlite3_free(error);
         return false;
     }
+
     return true;
 }
 
@@ -126,12 +134,31 @@ void ensureDirectory(const std::string& path) {
         if (!sub.empty()) ::mkdir(sub.c_str(), 0755);
         ++pos;
     }
+
     if (!path.empty()) ::mkdir(path.c_str(), 0755);
 }
 
 std::string queueLogPath(const std::string& data_dir,
                          const std::string& queue) {
-    return data_dir + "/queues/" + queue + ".log";
+    // The queue name comes straight from the client, so it must not be able to
+    // escape this directory: path separators and NUL are escaped. Underscore is
+    // escaped as well, which keeps the mapping injective ("a/b" cannot collide
+    // with a queue literally named "a_2Fb").
+    static const char* kHexDigits = "0123456789ABCDEF";
+    std::string name;
+    name.reserve(queue.size());
+    for (const char ch : queue) {
+        const unsigned char byte = static_cast<unsigned char>(ch);
+        if (ch != '/' && ch != '\\' && ch != '\0' && ch != '_') {
+            name.push_back(ch);
+            continue;
+        }
+        name.push_back('_');
+        name.push_back(kHexDigits[(byte >> 4) & 0x0f]);
+        name.push_back(kHexDigits[byte & 0x0f]);
+    }
+
+    return data_dir + "/queues/" + name + ".log";
 }
 
 }  // namespace
@@ -157,6 +184,7 @@ bool VirtualHost::openStorage() {
         sqlite3_close(db);
         return false;
     }
+
     db_ = db;
     const bool ok =
         sqlExec(db, "create table if not exists exchanges("
@@ -173,6 +201,7 @@ bool VirtualHost::openStorage() {
         closeStorage();
         return false;
     }
+
     recoverStorage();
     return true;
 }
@@ -206,6 +235,7 @@ void VirtualHost::recoverStorage() {
             entry.spec = spec;
             exchanges_[spec.name] = std::move(entry);
         }
+
         sqlite3_finalize(stmt);
     }
 
@@ -233,6 +263,7 @@ void VirtualHost::recoverStorage() {
             entry.bindings.insert({"", spec.name});
             queues_[spec.name] = std::move(entry);
         }
+
         sqlite3_finalize(stmt);
     }
 
@@ -251,6 +282,7 @@ void VirtualHost::recoverStorage() {
                 queue_it->second.bindings.insert({exchange, key});
             }
         }
+
         sqlite3_finalize(stmt);
     }
 
@@ -269,6 +301,7 @@ void VirtualHost::appendMessageLog(const std::string& queue,
         !queue_it->second.spec.durable) {
         return;
     }
+
     std::string record;
     record.push_back(1);
     appendU64(record, message.id);
@@ -307,6 +340,7 @@ void VirtualHost::compactQueueLog(const std::string& queue) {
     for (const Message& message : queue_it->second.messages) {
         if (message.persistent) appendMessageLog(queue, message);
     }
+
     for (const auto& entry : unacked_) {
         if (entry.second.queue == queue && entry.second.message.persistent) {
             appendMessageLog(queue, entry.second.message);
@@ -331,12 +365,14 @@ void VirtualHost::recoverQueueMessages(const std::string& queue) {
             for (int i = 0; i < 8; ++i) {
                 id = (id << 8) | static_cast<uint8_t>(data[pos++]);
             }
+
             if (pos + 4 > data.size()) break;
             uint32_t body_len = 0;
             for (int i = 0; i < 4; ++i) {
                 body_len =
                     (body_len << 8) | static_cast<uint8_t>(data[pos++]);
             }
+
             if (pos + body_len > data.size()) break;
             Message message;
             message.id = id;
@@ -361,6 +397,7 @@ void VirtualHost::recoverQueueMessages(const std::string& queue) {
                 !read_string(message.routing_key)) {
                 break;
             }
+
             if (pos + 8 + 4 + 4 > data.size()) break;
             message.expire_at_ms = 0;
             for (int i = 0; i < 8; ++i) {
@@ -368,14 +405,17 @@ void VirtualHost::recoverQueueMessages(const std::string& queue) {
                     (message.expire_at_ms << 8) |
                     static_cast<uint8_t>(data[pos++]);
             }
+
             uint32_t ttl = 0;
             uint32_t dlc = 0;
             for (int i = 0; i < 4; ++i) {
                 ttl = (ttl << 8) | static_cast<uint8_t>(data[pos++]);
             }
+
             for (int i = 0; i < 4; ++i) {
                 dlc = (dlc << 8) | static_cast<uint8_t>(data[pos++]);
             }
+
             message.ttl_ms = ttl;
             message.dead_letter_count = dlc;
             if (pos + 4 > data.size()) break;
@@ -384,6 +424,7 @@ void VirtualHost::recoverQueueMessages(const std::string& queue) {
                 header_len =
                     (header_len << 8) | static_cast<uint8_t>(data[pos++]);
             }
+
             if (pos + header_len > data.size()) break;
             message.header_payload.assign(data.data() + pos, header_len);
             pos += header_len;
@@ -392,16 +433,19 @@ void VirtualHost::recoverQueueMessages(const std::string& queue) {
             by_id[id] = std::move(message);
             if (id >= next_message_id_) next_message_id_ = id + 1;
         } else if (type == 2) {
+
             if (pos + 8 > data.size()) break;
             uint64_t id = 0;
             for (int i = 0; i < 8; ++i) {
                 id = (id << 8) | static_cast<uint8_t>(data[pos++]);
             }
+
             by_id.erase(id);
         } else {
             break;
         }
     }
+
     auto& messages = queues_[queue].messages;
     for (const uint64_t id : order) {
         const auto it = by_id.find(id);
@@ -487,6 +531,7 @@ BrokerResult VirtualHost::declareExchange(const ExchangeSpec& spec) {
         return BrokerResult{false, kPreconditionFailed,
                             "unsupported exchange type", 0};
     }
+
     const auto it = exchanges_.find(spec.name);
     if (it != exchanges_.end()) {
         const ExchangeSpec& existing = it->second.spec;
@@ -496,8 +541,10 @@ BrokerResult VirtualHost::declareExchange(const ExchangeSpec& spec) {
             return BrokerResult{false, kPreconditionFailed,
                                 "inequivalent exchange declaration", 0};
         }
+
         return BrokerResult{};
     }
+
     exchanges_[spec.name] = ExchangeEntry{spec};
     if (spec.durable) persistExchange(spec);
     return BrokerResult{};
@@ -510,16 +557,18 @@ BrokerResult VirtualHost::deleteExchange(const std::string& name,
     if (it == exchanges_.end()) {
         return BrokerResult{false, kNotFound, "exchange not found", 0};
     }
+
     if (if_unused) {
         for (auto& queue_entry : queues_) {
             for (const auto& binding : queue_entry.second.bindings) {
-                if (binding.first == name) {
-                    return BrokerResult{false, kPreconditionFailed,
-                                        "exchange is in use", 0};
-                }
+                if (binding.first != name) continue;
+
+                return BrokerResult{false, kPreconditionFailed,
+                                    "exchange is in use", 0};
             }
         }
     }
+
     exchanges_.erase(it);
     removeExchangeRow(name);
     removeBindingsForExchange(name);
@@ -533,6 +582,7 @@ BrokerResult VirtualHost::deleteExchange(const std::string& name,
             }
         }
     }
+
     return BrokerResult{};
 }
 
@@ -551,6 +601,7 @@ BrokerResult VirtualHost::declareQueue(const QueueSpec& spec, void* owner) {
             return BrokerResult{false, kResourceLocked,
                                 "exclusive queue is locked", 0};
         }
+
         if (existing.durable != spec.durable ||
             existing.exclusive != spec.exclusive ||
             existing.auto_delete != spec.auto_delete ||
@@ -574,6 +625,7 @@ BrokerResult VirtualHost::declareQueue(const QueueSpec& spec, void* owner) {
         persistQueue(spec);
         persistBinding("", spec.name, spec.name);
     }
+
     return BrokerResult{};
 }
 
@@ -584,14 +636,17 @@ BrokerResult VirtualHost::deleteQueue(const std::string& name, bool if_unused,
     if (it == queues_.end()) {
         return BrokerResult{false, kNotFound, "queue not found", 0};
     }
+
     if (if_empty && !it->second.messages.empty()) {
         return BrokerResult{false, kPreconditionFailed,
                             "queue is not empty", 0};
     }
+
     if (if_unused && consumerCount(name) > 0) {
         return BrokerResult{false, kPreconditionFailed,
                             "queue is in use", 0};
     }
+
     const uint32_t removed =
         static_cast<uint32_t>(it->second.messages.size());
     for (auto uit = unacked_.begin(); uit != unacked_.end();) {
@@ -601,6 +656,7 @@ BrokerResult VirtualHost::deleteQueue(const std::string& name, bool if_unused,
             ++uit;
         }
     }
+
     consumers_.erase(name);
     consumer_round_robin_.erase(name);
     if (it->second.spec.durable) removeQueueLog(name);
@@ -628,6 +684,7 @@ BrokerResult VirtualHost::purgeQueue(const std::string& name) {
     if (it == queues_.end()) {
         return BrokerResult{false, kNotFound, "queue not found", 0};
     }
+
     expireMessages(name);
     if (it->second.spec.durable) removeQueueLog(name);
     const uint32_t removed =
@@ -656,18 +713,22 @@ BrokerResult VirtualHost::publish(const std::string& exchange,
                 nowMs() + static_cast<uint64_t>(
                               it->second.spec.message_ttl_ms);
         }
+
         if (copy.ttl_ms > 0) {
             const uint64_t message_deadline = nowMs() + copy.ttl_ms;
             deadline = deadline == 0
                            ? message_deadline
                            : std::min(deadline, message_deadline);
         }
+
         if (deadline != 0) {
             copy.expire_at_ms = deadline;
         }
+
         if (copy.persistent) {
             appendMessageLog(queue, copy);
         }
+
         it->second.messages.push_back(copy);
         ++count;
         deliverPending(queue);
@@ -678,6 +739,7 @@ BrokerResult VirtualHost::publish(const std::string& exchange,
         if (hasQueue(routing_key)) {
             routeToQueue(routing_key);
         }
+
         if (delivered != nullptr) *delivered = count;
         return BrokerResult{};
     }
@@ -699,8 +761,10 @@ BrokerResult VirtualHost::publish(const std::string& exchange,
             } else if (type == "topic") {
                 matched = topicMatches(binding.second, routing_key);
             }
+
             if (matched) break;
         }
+
         if (matched) routeToQueue(queue_entry.first);
     }
 
@@ -717,6 +781,7 @@ BrokerResult VirtualHost::registerConsumer(
     if (queue_it == queues_.end()) {
         return BrokerResult{false, kNotFound, "queue not found", 0};
     }
+
     auto& entries = consumers_[queue];
     if (!entries.empty()) {
         for (const auto& entry : entries) {
@@ -726,6 +791,7 @@ BrokerResult VirtualHost::registerConsumer(
             }
         }
     }
+
     for (auto& entry : entries) {
         if (entry.owner == owner && entry.consumer_tag == consumer_tag) {
             entry.prefetch_count = prefetch_count;
@@ -733,6 +799,7 @@ BrokerResult VirtualHost::registerConsumer(
             return BrokerResult{};
         }
     }
+
     ConsumerEntry entry;
     entry.consumer_tag = consumer_tag;
     entry.owner = owner;
@@ -764,6 +831,7 @@ void VirtualHost::unregisterConsumers(void* owner) {
             if (queue_it != queues_.end()) {
                 queue_it->second.consumer_count = 0;
             }
+
             const bool should_auto_delete =
                 queue_it != queues_.end() &&
                 queue_it->second.spec.auto_delete &&
@@ -779,6 +847,7 @@ void VirtualHost::unregisterConsumers(void* owner) {
             if (queue_it != queues_.end()) {
                 queue_it->second.consumer_count = entries.size();
             }
+
             ++it;
         }
     }
@@ -803,6 +872,7 @@ void VirtualHost::unregisterConsumer(const std::string& queue,
     if (queue_it != queues_.end()) {
         queue_it->second.consumer_count = entries.size();
     }
+
     if (entries.empty()) {
         const bool should_auto_delete =
             queue_it != queues_.end() &&
@@ -829,6 +899,7 @@ BrokerResult VirtualHost::ackMessage(uint64_t message_id) {
         return BrokerResult{false, kPreconditionFailed,
                             "unknown delivery tag", 0};
     }
+
     UnackedEntry entry = std::move(it->second);
     unacked_.erase(it);
     ++acked_count_;
@@ -840,6 +911,7 @@ BrokerResult VirtualHost::ackMessage(uint64_t message_id) {
             compactQueueLog(entry.queue);
         }
     }
+
     if (!entry.consumer_tag.empty()) {
         const auto consumers_it = consumers_.find(entry.queue);
         if (consumers_it != consumers_.end()) {
@@ -851,6 +923,7 @@ BrokerResult VirtualHost::ackMessage(uint64_t message_id) {
             }
         }
     }
+
     deliverPending(entry.queue);
     return BrokerResult{};
 }
@@ -863,6 +936,7 @@ BrokerResult VirtualHost::getMessage(const std::string& queue, bool no_ack,
     if (queue_it == queues_.end()) {
         return BrokerResult{false, kNotFound, "queue not found", 0};
     }
+
     expireMessages(queue);
     if (has_message != nullptr) *has_message = false;
     if (remaining != nullptr) *remaining = 0;
@@ -875,15 +949,18 @@ BrokerResult VirtualHost::getMessage(const std::string& queue, bool no_ack,
         appendTombstoneLog(queue, message->id);
         compactQueueLog(queue);
     }
+
     if (has_message != nullptr) *has_message = true;
     if (remaining != nullptr) {
         *remaining =
             static_cast<uint32_t>(queue_it->second.messages.size());
     }
+
     if (!no_ack) {
         unacked_[message->id] =
             UnackedEntry{queue, *message, owner, ""};
     }
+
     return BrokerResult{};
 }
 
@@ -894,6 +971,7 @@ BrokerResult VirtualHost::rejectMessage(uint64_t message_id, bool requeue) {
         return BrokerResult{false, kPreconditionFailed,
                             "unknown delivery tag", 0};
     }
+
     UnackedEntry entry = std::move(it->second);
     unacked_.erase(it);
     if (!entry.consumer_tag.empty()) {
@@ -907,6 +985,7 @@ BrokerResult VirtualHost::rejectMessage(uint64_t message_id, bool requeue) {
             }
         }
     }
+
     if (requeue) {
         entry.message.redelivered = true;
         queues_[entry.queue].messages.push_front(entry.message);
@@ -920,24 +999,45 @@ BrokerResult VirtualHost::rejectMessage(uint64_t message_id, bool requeue) {
                 compactQueueLog(entry.queue);
             }
         }
+
         deadLetter(entry.queue, entry.message);
     }
+
     deliverPending(entry.queue);
     return BrokerResult{};
 }
 
 void VirtualHost::requeueUnacked(void* owner) {
+    requeueUnackedMatching(
+        [owner](const UnackedEntry& entry) { return entry.owner == owner; });
+}
+
+void VirtualHost::requeueConsumerUnacked(const std::string& consumer_tag,
+                                         void* owner) {
+    requeueUnackedMatching([&consumer_tag, owner](const UnackedEntry& entry) {
+        return entry.owner == owner && entry.consumer_tag == consumer_tag;
+    });
+}
+
+void VirtualHost::requeueUnackedMatching(
+    const std::function<bool(const UnackedEntry&)>& match) {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
     std::vector<UnackedEntry> entries;
     for (auto it = unacked_.begin(); it != unacked_.end();) {
-        if (it->second.owner == owner) {
+        if (match(it->second)) {
             entries.push_back(std::move(it->second));
             it = unacked_.erase(it);
         } else {
             ++it;
         }
     }
+
     for (auto& entry : entries) {
+        // The queue may already be gone (auto-delete queues are removed when
+        // their last consumer disappears); its unacked messages go with it.
+        const auto queue_it = queues_.find(entry.queue);
+        if (queue_it == queues_.end()) continue;
+
         if (!entry.consumer_tag.empty()) {
             const auto consumers_it = consumers_.find(entry.queue);
             if (consumers_it != consumers_.end()) {
@@ -949,9 +1049,11 @@ void VirtualHost::requeueUnacked(void* owner) {
                 }
             }
         }
+
         entry.message.redelivered = true;
-        queues_[entry.queue].messages.push_front(entry.message);
+        queue_it->second.messages.push_front(entry.message);
     }
+
     for (const auto& entry : entries) {
         deliverPending(entry.queue);
     }
@@ -993,12 +1095,31 @@ void VirtualHost::expireMessages(const std::string& queue) {
     if (queue_it == queues_.end()) return;
     auto& messages = queue_it->second.messages;
     const uint64_t now = nowMs();
+    std::vector<Message> expired;
     while (!messages.empty()) {
         const Message& front = messages.front();
         if (front.expire_at_ms == 0 || front.expire_at_ms > now) break;
-        Message expired = messages.front();
+        expired.push_back(std::move(messages.front()));
         messages.pop_front();
-        deadLetter(queue, expired);
+    }
+
+    if (expired.empty()) return;
+
+    // A persistent message that leaves the queue must be tombstoned, otherwise
+    // the next log replay would bring it back and dead-letter it twice.
+    if (queue_it->second.spec.durable) {
+        bool tombstoned = false;
+        for (const Message& message : expired) {
+            if (!message.persistent) continue;
+            appendTombstoneLog(queue, message.id);
+            tombstoned = true;
+        }
+
+        if (tombstoned) compactQueueLog(queue);
+    }
+
+    for (const Message& message : expired) {
+        deadLetter(queue, message);
     }
 }
 
@@ -1009,10 +1130,12 @@ void VirtualHost::maybeAutoDelete(const std::string& queue) {
         !queue_it->second.ever_had_consumer) {
         return;
     }
+
     const auto consumer_it = consumers_.find(queue);
     if (consumer_it != consumers_.end() && !consumer_it->second.empty()) {
         return;
     }
+
     consumers_.erase(queue);
     consumer_round_robin_.erase(queue);
     queues_.erase(queue_it);
@@ -1044,6 +1167,7 @@ void VirtualHost::deliverPending(const std::string& queue) {
             consumer_it->second.empty()) {
             return;
         }
+
         auto& entries = consumer_it->second;
         size_t chosen = entries.size();
         for (size_t probe = 0; probe < entries.size(); ++probe) {
@@ -1056,13 +1180,12 @@ void VirtualHost::deliverPending(const std::string& queue) {
             const bool no_local_skip =
                 entry.no_local && front.publisher_owner != nullptr &&
                 front.publisher_owner == entry.owner;
-            if (can_receive) {
-                if (!no_local_skip) {
-                    chosen = candidate;
-                    break;
-                }
+            if (can_receive && !no_local_skip) {
+                chosen = candidate;
+                break;
             }
         }
+
         if (chosen == entries.size()) return;
 
         ConsumerEntry& entry = entries[chosen];
@@ -1075,6 +1198,7 @@ void VirtualHost::deliverPending(const std::string& queue) {
                 UnackedEntry{queue, message, entry.owner,
                              entry.consumer_tag};
         } else if (message.persistent &&
+
                    queue_it->second.spec.durable) {
             appendTombstoneLog(queue, message.id);
             compactQueueLog(queue);
@@ -1092,10 +1216,12 @@ BrokerResult VirtualHost::bind(const std::string& exchange,
     if (!hasExchange(exchange)) {
         return BrokerResult{false, kNotFound, "exchange not found", 0};
     }
+
     const auto it = queues_.find(queue);
     if (it == queues_.end()) {
         return BrokerResult{false, kNotFound, "queue not found", 0};
     }
+
     it->second.bindings.insert({exchange, routing_key});
     if (hasExchange(exchange) && hasQueue(queue)) {
         const bool durable_both =
@@ -1104,6 +1230,7 @@ BrokerResult VirtualHost::bind(const std::string& exchange,
             persistBinding(exchange, queue, routing_key);
         }
     }
+
     return BrokerResult{};
 }
 
@@ -1115,10 +1242,12 @@ BrokerResult VirtualHost::unbind(const std::string& exchange,
     if (it == queues_.end()) {
         return BrokerResult{false, kNotFound, "queue not found", 0};
     }
+
     const auto binding = it->second.bindings.find({exchange, routing_key});
     if (binding == it->second.bindings.end()) {
         return BrokerResult{false, kNotFound, "binding not found", 0};
     }
+
     it->second.bindings.erase(binding);
     removeBindingRow(exchange, queue, routing_key);
     return BrokerResult{};
@@ -1130,6 +1259,7 @@ size_t VirtualHost::bindingCount() const {
     for (const auto& queue_entry : queues_) {
         count += queue_entry.second.bindings.size();
     }
+
     return count;
 }
 
@@ -1142,6 +1272,7 @@ size_t VirtualHost::bindingCount(const std::string& exchange,
     for (const auto& binding : it->second.bindings) {
         if (binding.first == exchange) ++count;
     }
+
     return count;
 }
 
@@ -1163,6 +1294,7 @@ std::vector<QueueInfo> VirtualHost::listQueues() const {
         info.message_ttl_ms = spec.message_ttl_ms;
         result.push_back(std::move(info));
     }
+
     return result;
 }
 
@@ -1180,6 +1312,7 @@ std::vector<ExchangeInfo> VirtualHost::listExchanges() const {
         info.internal = spec.internal;
         result.push_back(std::move(info));
     }
+
     return result;
 }
 

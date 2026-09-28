@@ -605,6 +605,97 @@ TEST(VirtualHostTest, AckedMessageDoesNotReappearAfterRestart) {
     std::filesystem::remove_all(dir);
 }
 
+TEST(VirtualHostTest, QueueLogPathCannotEscapeDataDir) {
+    char template_dir[] = "/tmp/mq-escape-XXXXXX";
+    char* created = mkdtemp(template_dir);
+    ASSERT_NE(created, nullptr);
+    const std::string dir = created;
+
+    VirtualHost host(dir);
+    Message message;
+    message.body = "payload";
+    message.persistent = true;
+
+    QueueSpec escape;
+    escape.name = "../../escape";
+    escape.durable = true;
+    ASSERT_TRUE(host.declareQueue(escape).ok);
+    ASSERT_TRUE(host.publish("", escape.name, message).ok);
+
+    // 名字里的 '/' 被转义，日志只能落在 queues/ 目录里
+    EXPECT_TRUE(
+        std::filesystem::exists(dir + "/queues/.._2F.._2Fescape.log"));
+    EXPECT_FALSE(std::filesystem::exists(dir + "/../escape.log"));
+
+    // 转义是单射：'a/b' 与字面量 'a_2Fb' 不会撞到同一个文件
+    QueueSpec slash;
+    slash.name = "a/b";
+    slash.durable = true;
+    ASSERT_TRUE(host.declareQueue(slash).ok);
+    QueueSpec literal;
+    literal.name = "a_2Fb";
+    literal.durable = true;
+    ASSERT_TRUE(host.declareQueue(literal).ok);
+    ASSERT_TRUE(host.publish("", "a/b", message).ok);
+    ASSERT_TRUE(host.publish("", "a_2Fb", message).ok);
+    EXPECT_TRUE(std::filesystem::exists(dir + "/queues/a_2Fb.log"));
+    EXPECT_TRUE(std::filesystem::exists(dir + "/queues/a_5F2Fb.log"));
+
+    std::filesystem::remove_all(dir);
+}
+
+TEST(VirtualHostTest, ExpiredPersistentMessageDoesNotResurrectAfterRestart) {
+    char template_dir[] = "/tmp/mq-ttl-XXXXXX";
+    char* created = mkdtemp(template_dir);
+    ASSERT_NE(created, nullptr);
+    const std::string dir = created;
+
+    {
+        VirtualHost host(dir);
+        ASSERT_TRUE(host.declareExchange(
+                        ExchangeSpec{"dlx", "direct", true, false, false})
+                        .ok);
+        ASSERT_TRUE(host.declareQueue(
+                        QueueSpec{"dlq", true, false, false})
+                        .ok);
+        ASSERT_TRUE(host.bind("dlx", "dlq", "expired").ok);
+
+        QueueSpec source;
+        source.name = "q1";
+        source.durable = true;
+        source.dead_letter_exchange = "dlx";
+        source.dead_letter_routing_key = "expired";
+        ASSERT_TRUE(host.declareQueue(source).ok);
+
+        Message message;
+        message.body = "short-lived";
+        message.persistent = true;
+        message.ttl_ms = 20;
+        ASSERT_TRUE(host.publish("", "q1", message).ok);
+        std::this_thread::sleep_for(std::chrono::milliseconds(40));
+
+        // getMessage 会先跑过期处理；消息已过期，取不到，但会进死信队列
+        Message pulled;
+        bool has = true;
+        uint32_t remaining = 0;
+        ASSERT_TRUE(host.getMessage("q1", true, this, &pulled, &has, &remaining)
+                        .ok);
+        EXPECT_FALSE(has);
+        EXPECT_EQ(host.messageCount("q1"), 0U);
+        EXPECT_EQ(host.messageCount("dlq"), 1U);
+    }
+
+    {
+        VirtualHost host(dir);
+        // 过期消息必须落了墓碑：重启后不能从日志里复活出来
+        EXPECT_EQ(host.messageCount("q1"), 0U);
+        // 也不能被重复死信
+        EXPECT_EQ(host.messageCount("dlq"), 1U);
+    }
+
+    std::filesystem::remove_all(dir);
+}
+
 }  // namespace mq::broker
 
 int main(int argc, char** argv) {
