@@ -1,0 +1,17 @@
+find_package(GTest QUIET)
+
+if(NOT GTest_FOUND)
+    message(WARNING "GTest was not found; tests are skipped")
+else()
+    # mq_add_test(<name> <source> <libraries...>)
+    function(mq_add_test name source)
+        add_executable(${name} ${source})
+        target_link_libraries(${name} PRIVATE ${ARGN} GTest::gtest)
+        target_compile_features(${name} PRIVATE cxx_std_17)
+        add_test(NAME ${name} COMMAND ${name})
+    endfunction()
+
+    add_subdirectory(broker)
+    add_subdirectory(protocol)
+    add_subdirectory(cli)
+endif()

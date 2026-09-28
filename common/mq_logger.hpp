@@ -34,6 +34,7 @@ inline const char* logLevelName(LogLevel level) {
         case LogLevel::Fatal: return "FATAL";
         case LogLevel::Off:   return "OFF";
     }
+
     return "UNKNOWN";
 }
 
@@ -45,6 +46,7 @@ inline LogLevel parseLogLevel(const char* name) {
     if (std::strcmp(name, "warn") == 0 || std::strcmp(name, "warning") == 0) {
         return LogLevel::Warn;
     }
+
     if (std::strcmp(name, "error") == 0) return LogLevel::Error;
     if (std::strcmp(name, "fatal") == 0) return LogLevel::Fatal;
     if (std::strcmp(name, "off") == 0)   return LogLevel::Off;
@@ -74,6 +76,7 @@ public:
         if (file_ != stderr && file_ != stdout) {
             std::fclose(file_);
         }
+
         file_ = std::fopen(path.c_str(), "a");
         if (file_ == nullptr) file_ = stderr;
     }
