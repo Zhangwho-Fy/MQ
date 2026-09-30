@@ -88,35 +88,26 @@ TEST(UsersTest, EmptySpecIsANoop) {
     EXPECT_TRUE(recorder.seen.empty());
 }
 
-TEST(UsersTest, RejectsEntryWithMissingFields) {
-    Recorder recorder;
-    const mq::cli::UsersParseResult result =
-        mq::cli::parseUsersSpec("alice:secret", recorder.fn());
+TEST(UsersTest, RejectsMalformedEntries) {
+    struct Case {
+        const char* spec;
+        const char* message;
+    };
+    const Case cases[] = {
+        {"alice:secret", "user:password:vhost"},
+        {":secret:/a", "empty user name"},
+        {"alice:secret:", "empty vhost"},
+    };
 
-    EXPECT_EQ(result.accepted, 0U);
-    EXPECT_EQ(result.rejected, 1U);
-    EXPECT_TRUE(recorder.seen.empty());
-    EXPECT_TRUE(hasError(result, "user:password:vhost"));
-}
-
-TEST(UsersTest, RejectsEmptyUserName) {
-    Recorder recorder;
-    const mq::cli::UsersParseResult result =
-        mq::cli::parseUsersSpec(":secret:/a", recorder.fn());
-
-    EXPECT_EQ(result.accepted, 0U);
-    EXPECT_EQ(result.rejected, 1U);
-    EXPECT_TRUE(hasError(result, "empty user name"));
-}
-
-TEST(UsersTest, RejectsEmptyVhost) {
-    Recorder recorder;
-    const mq::cli::UsersParseResult result =
-        mq::cli::parseUsersSpec("alice:secret:", recorder.fn());
-
-    EXPECT_EQ(result.accepted, 0U);
-    EXPECT_EQ(result.rejected, 1U);
-    EXPECT_TRUE(hasError(result, "empty vhost"));
+    for (const Case& c : cases) {
+        Recorder recorder;
+        const mq::cli::UsersParseResult result =
+            mq::cli::parseUsersSpec(c.spec, recorder.fn());
+        EXPECT_EQ(result.accepted, 0U) << c.spec;
+        EXPECT_EQ(result.rejected, 1U) << c.spec;
+        EXPECT_TRUE(recorder.seen.empty()) << c.spec;
+        EXPECT_TRUE(hasError(result, c.message)) << c.spec;
+    }
 }
 
 TEST(UsersTest, EmptyPasswordIsAcceptedWithWarning) {
@@ -186,25 +177,23 @@ TEST(UsersTest, RejectsSameUserNameTwice) {
     EXPECT_EQ(recorder.seen[0].vhost, "/a");
 }
 
-TEST(UsersTest, LoadsFromEnvironment) {
+TEST(UsersTest, LoadsUsersFromEnvironment) {
     ::setenv("MQ_USERS", "envuser:envpw:/env", 1);
     Recorder recorder;
-    const mq::cli::UsersParseResult result = mq::cli::loadUsersFromEnv(recorder.fn());
+    const mq::cli::UsersParseResult loaded =
+        mq::cli::loadUsersFromEnv(recorder.fn());
     ::unsetenv("MQ_USERS");
 
-    EXPECT_EQ(result.accepted, 1U);
+    EXPECT_EQ(loaded.accepted, 1U);
     ASSERT_EQ(recorder.seen.size(), 1U);
     EXPECT_EQ(recorder.seen[0].name, "envuser");
-}
 
-TEST(UsersTest, MissingEnvironmentVariableIsANoop) {
-    ::unsetenv("MQ_USERS");
-    Recorder recorder;
-    const mq::cli::UsersParseResult result = mq::cli::loadUsersFromEnv(recorder.fn());
-
-    EXPECT_EQ(result.accepted, 0U);
-    EXPECT_EQ(result.rejected, 0U);
-    EXPECT_TRUE(recorder.seen.empty());
+    Recorder when_unset;
+    const mq::cli::UsersParseResult none =
+        mq::cli::loadUsersFromEnv(when_unset.fn());
+    EXPECT_EQ(none.accepted, 0U);
+    EXPECT_EQ(none.rejected, 0U);
+    EXPECT_TRUE(when_unset.seen.empty());
 }
 
 }  // namespace

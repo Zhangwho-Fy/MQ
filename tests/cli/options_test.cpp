@@ -97,36 +97,25 @@ TEST(OptionsTest, ExplicitEmptyDataDirIsAccepted) {
     EXPECT_TRUE(options.data_dir.empty());  // in-memory mode
 }
 
-TEST(OptionsTest, UnknownOptionFails) {
-    const mq::cli::ParseResult parsed = parse({"--foo"});
+TEST(OptionsTest, RejectsMalformedArguments) {
+    mq::cli::ParseResult parsed = parse({"--foo"});
     EXPECT_FALSE(parsed.ok);
     EXPECT_EQ(parsed.failed, mq::cli::OptionKind::kUnknown);
     EXPECT_NE(parsed.error.find("--foo"), std::string::npos);
-}
 
-TEST(OptionsTest, MissingValueFails) {
-    const mq::cli::ParseResult parsed = parse({"--data"});
+    parsed = parse({"--data"});
     EXPECT_FALSE(parsed.ok);
     EXPECT_EQ(parsed.failed, mq::cli::OptionKind::kMissingValue);
     EXPECT_NE(parsed.error.find("--data"), std::string::npos);
-}
 
-TEST(OptionsTest, PositionalArgumentFails) {
-    const mq::cli::ParseResult parsed = parse({"foo"});
+    parsed = parse({"foo"});
     EXPECT_FALSE(parsed.ok);
     EXPECT_NE(parsed.error.find("unexpected argument"), std::string::npos);
-}
 
-TEST(OptionsTest, NonNumericPortFails) {
     mq::cli::ServerOptions options;
     std::string error;
     EXPECT_FALSE(parseAndApply({"--port", "abc"}, &options, &error));
     EXPECT_NE(error.find("--port"), std::string::npos);
-}
-
-TEST(OptionsTest, OutOfRangeValuesFail) {
-    mq::cli::ServerOptions options;
-    std::string error;
     EXPECT_FALSE(parseAndApply({"--port", "70000"}, &options, &error));
     EXPECT_FALSE(parseAndApply({"--port", "0"}, &options, &error));
     EXPECT_FALSE(parseAndApply({"--port", "-1"}, &options, &error));

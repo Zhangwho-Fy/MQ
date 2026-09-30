@@ -289,7 +289,9 @@ TEST(VirtualHostTest, RejectWithoutRequeueDeadLetters) {
     EXPECT_EQ(host.messageCount("dlq"), 1U);
 }
 
-TEST(VirtualHostTest, TtlExpiredMessagesDeadLetterOnPurge) {
+// Queue-level and per-message TTL share one deadline; when it passes the message
+// is forwarded to the dead-letter exchange, or dropped if none is configured.
+TEST(VirtualHostTest, ExpiresMessagesAndForwardsToDeadLetter) {
     VirtualHost host;
     ASSERT_TRUE(host.declareExchange(
                     ExchangeSpec{"dlx", "direct", false, false, false})
@@ -297,37 +299,32 @@ TEST(VirtualHostTest, TtlExpiredMessagesDeadLetterOnPurge) {
     ASSERT_TRUE(host.declareQueue(QueueSpec{"dlq", false, false, false}).ok);
     ASSERT_TRUE(host.bind("dlx", "dlq", "expired").ok);
 
-    QueueSpec source;
-    source.name = "q1";
-    source.dead_letter_exchange = "dlx";
-    source.dead_letter_routing_key = "expired";
-    source.message_ttl_ms = 20;
-    ASSERT_TRUE(host.declareQueue(source).ok);
+    QueueSpec with_dlx;
+    with_dlx.name = "q1";
+    with_dlx.dead_letter_exchange = "dlx";
+    with_dlx.dead_letter_routing_key = "expired";
+    with_dlx.message_ttl_ms = 20;
+    ASSERT_TRUE(host.declareQueue(with_dlx).ok);
     EXPECT_EQ(host.messageTtl("q1"), 20);
-
     ASSERT_TRUE(host.publish("", "q1", Message{"old", false}).ok);
-    EXPECT_EQ(host.messageCount("q1"), 1U);
+
+    ASSERT_TRUE(host.declareQueue(QueueSpec{"q2", false, false, false}).ok);
+    Message short_lived;
+    short_lived.body = "short-lived";
+    short_lived.ttl_ms = 20;
+    ASSERT_TRUE(host.publish("", "q2", short_lived).ok);
+
     std::this_thread::sleep_for(std::chrono::milliseconds(40));
 
     const BrokerResult purged = host.purgeQueue("q1");
     ASSERT_TRUE(purged.ok) << purged.error;
-    EXPECT_EQ(purged.count, 0U);
+    EXPECT_EQ(purged.count, 0U);          // already expired, nothing left to purge
     EXPECT_EQ(host.messageCount("dlq"), 1U);
-}
 
-TEST(VirtualHostTest, PerMessageTtlExpiresMessage) {
-    VirtualHost host;
-    ASSERT_TRUE(host.declareQueue(QueueSpec{"q1", false, false, false}).ok);
-    Message message;
-    message.body = "short-lived";
-    message.ttl_ms = 20;
-    ASSERT_TRUE(host.publish("", "q1", message).ok);
-    EXPECT_EQ(host.messageCount("q1"), 1U);
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(40));
-    const BrokerResult purged = host.purgeQueue("q1");
-    ASSERT_TRUE(purged.ok) << purged.error;
-    EXPECT_EQ(purged.count, 0U);
+    const BrokerResult purged2 = host.purgeQueue("q2");
+    ASSERT_TRUE(purged2.ok) << purged2.error;
+    EXPECT_EQ(purged2.count, 0U);         // no DLX: the expired message is dropped
+    EXPECT_EQ(host.messageCount("q2"), 0U);
 }
 
 TEST(VirtualHostTest, GetPullsMessageAndTracksUnacked) {
@@ -622,12 +619,12 @@ TEST(VirtualHostTest, QueueLogPathCannotEscapeDataDir) {
     ASSERT_TRUE(host.declareQueue(escape).ok);
     ASSERT_TRUE(host.publish("", escape.name, message).ok);
 
-    // 名字里的 '/' 被转义，日志只能落在 queues/ 目录里
+    // The escaped name keeps the log inside queues/.
     EXPECT_TRUE(
         std::filesystem::exists(dir + "/queues/.._2F.._2Fescape.log"));
     EXPECT_FALSE(std::filesystem::exists(dir + "/../escape.log"));
 
-    // 转义是单射：'a/b' 与字面量 'a_2Fb' 不会撞到同一个文件
+    // Escaping is injective: "a/b" and a literal "a_2Fb" map to different files.
     QueueSpec slash;
     slash.name = "a/b";
     slash.durable = true;
@@ -674,7 +671,7 @@ TEST(VirtualHostTest, ExpiredPersistentMessageDoesNotResurrectAfterRestart) {
         ASSERT_TRUE(host.publish("", "q1", message).ok);
         std::this_thread::sleep_for(std::chrono::milliseconds(40));
 
-        // getMessage 会先跑过期处理；消息已过期，取不到，但会进死信队列
+        // getMessage expires first: nothing to pull, one dead letter instead.
         Message pulled;
         bool has = true;
         uint32_t remaining = 0;
@@ -687,9 +684,8 @@ TEST(VirtualHostTest, ExpiredPersistentMessageDoesNotResurrectAfterRestart) {
 
     {
         VirtualHost host(dir);
-        // 过期消息必须落了墓碑：重启后不能从日志里复活出来
+        // Tombstoned, so a restart neither resurrects it nor dead-letters it again.
         EXPECT_EQ(host.messageCount("q1"), 0U);
-        // 也不能被重复死信
         EXPECT_EQ(host.messageCount("dlq"), 1U);
     }
 
