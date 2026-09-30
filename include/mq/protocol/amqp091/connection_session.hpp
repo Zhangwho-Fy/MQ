@@ -111,17 +111,62 @@ private:
     SessionResult handleMethod(uint16_t channel, std::string_view payload);
 
     SessionResult handleConnectionMethod(const MethodHeader& header);
+    SessionResult handleConnectionStartOk(std::string_view arguments);
+    SessionResult handleConnectionTuneOk(std::string_view arguments);
+    SessionResult handleConnectionOpen(std::string_view arguments);
+    SessionResult handleConnectionClose(std::string_view arguments);
+    SessionResult handleConnectionCloseOk(std::string_view arguments);
+
     SessionResult handleChannelMethod(uint16_t channel,
                                       const MethodHeader& header);
+    SessionResult handleChannelOpen(uint16_t channel,
+                                    std::string_view arguments);
+    SessionResult handleChannelFlow(uint16_t channel,
+                                    std::string_view arguments);
+    SessionResult handleChannelClose(uint16_t channel,
+                                     std::string_view arguments);
     void closeChannel(uint16_t channel);
+
     SessionResult handleExchangeMethod(uint16_t channel,
                                        const MethodHeader& header);
+    SessionResult handleExchangeDeclare(uint16_t channel,
+                                        std::string_view arguments);
+    SessionResult handleExchangeDelete(uint16_t channel,
+                                       std::string_view arguments);
+
     SessionResult handleQueueMethod(uint16_t channel,
                                     const MethodHeader& header);
+    SessionResult handleQueueDeclare(uint16_t channel,
+                                     std::string_view arguments);
+    SessionResult handleQueueBind(uint16_t channel, std::string_view arguments);
+    SessionResult handleQueuePurge(uint16_t channel, std::string_view arguments);
+    SessionResult handleQueueDelete(uint16_t channel,
+                                    std::string_view arguments);
+    SessionResult handleQueueUnbind(uint16_t channel,
+                                    std::string_view arguments);
+
     SessionResult handleBasicMethod(uint16_t channel,
                                     const MethodHeader& header);
+    SessionResult handleBasicQos(uint16_t channel,
+                                 std::string_view arguments);
+    SessionResult handleBasicConsume(uint16_t channel,
+                                     std::string_view arguments);
+    SessionResult handleBasicCancel(uint16_t channel,
+                                    std::string_view arguments);
+    SessionResult handleBasicPublish(uint16_t channel,
+                                     std::string_view arguments);
+    SessionResult handleBasicGet(uint16_t channel, std::string_view arguments);
+    SessionResult handleBasicAck(uint16_t channel, std::string_view arguments);
+    SessionResult handleBasicReject(uint16_t channel,
+                                    std::string_view arguments);
+    SessionResult handleBasicRecover(uint16_t channel,
+                                     std::string_view arguments,
+                                     uint16_t method_id);
+
     SessionResult handleConfirmMethod(uint16_t channel,
                                       const MethodHeader& header);
+    SessionResult handleConfirmSelect(uint16_t channel,
+                                      std::string_view arguments);
 
     SessionResult handleContentFrame(uint16_t channel, const Frame& frame);
     SessionResult finishPendingContent(uint16_t channel,

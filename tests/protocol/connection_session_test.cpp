@@ -263,7 +263,7 @@ TEST(ConnectionSessionTest, ChannelErrorDoesNotCloseConnection) {
                     .ok);
     ASSERT_EQ(sent.size(), 4U);
 
-    // basic.publish is not implemented yet: it must close only the channel.
+    // Without a virtual host every business method closes only the channel.
     const uint16_t basic_class = 60;
     const uint16_t publish_method = 40;
     const SessionResult result = session.feed(encodeMethodFrame(
@@ -293,6 +293,82 @@ TEST(ConnectionSessionTest, ChannelErrorDoesNotCloseConnection) {
                     .ok);
     EXPECT_EQ(session.openChannelCount(), 0U);
     EXPECT_EQ(session.state(), ConnectionState::kReady);
+}
+
+TEST(ConnectionSessionTest, RejectsUnsupportedMethodsWithChannelClose) {
+    auto host = std::make_shared<broker::VirtualHost>();
+    std::vector<std::string> sent;
+    ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    }, host);
+    establishReady(session, sent);
+
+    struct UnsupportedMethod {
+        uint16_t class_id;
+        uint16_t method_id;
+    };
+    const UnsupportedMethod methods[] = {
+        {kChannelClassId, static_cast<uint16_t>(ChannelMethodId::OpenOk)},
+        {kChannelClassId, static_cast<uint16_t>(ChannelMethodId::FlowOk)},
+        {kChannelClassId, 99},
+        {kExchangeClassId, static_cast<uint16_t>(ExchangeMethodId::DeclareOk)},
+        {kExchangeClassId, static_cast<uint16_t>(ExchangeMethodId::DeleteOk)},
+        {kExchangeClassId, 99},
+        {kQueueClassId, static_cast<uint16_t>(QueueMethodId::DeclareOk)},
+        {kQueueClassId, static_cast<uint16_t>(QueueMethodId::BindOk)},
+        {kQueueClassId, static_cast<uint16_t>(QueueMethodId::PurgeOk)},
+        {kQueueClassId, static_cast<uint16_t>(QueueMethodId::DeleteOk)},
+        {kQueueClassId, static_cast<uint16_t>(QueueMethodId::UnbindOk)},
+        {kQueueClassId, 99},
+        {kBasicClassId, static_cast<uint16_t>(BasicMethodId::Return)},
+        {kBasicClassId, static_cast<uint16_t>(BasicMethodId::Deliver)},
+        {kBasicClassId, static_cast<uint16_t>(BasicMethodId::GetOk)},
+        {kBasicClassId, static_cast<uint16_t>(BasicMethodId::GetEmpty)},
+        {kBasicClassId, static_cast<uint16_t>(BasicMethodId::RecoverOk)},
+        {kBasicClassId, static_cast<uint16_t>(BasicMethodId::Nack)},
+        {kBasicClassId, 99},
+        {kConfirmClassId, static_cast<uint16_t>(ConfirmMethodId::SelectOk)},
+        {kConfirmClassId, 99},
+        {999, 0},
+    };
+
+    uint16_t channel = 1;
+    for (const UnsupportedMethod& method : methods) {
+        ASSERT_TRUE(session
+                        .feed(encodeMethodFrame(
+                            kChannelClassId,
+                            static_cast<uint16_t>(ChannelMethodId::Open),
+                            encodeChannelOpen(ChannelOpen{}), channel))
+                        .ok);
+
+        const size_t sent_before = sent.size();
+        ASSERT_TRUE(session
+                        .feed(encodeMethodFrame(method.class_id,
+                                                method.method_id, "",
+                                                channel))
+                        .ok);
+        ASSERT_EQ(sent.size(), sent_before + 1);
+
+        MethodHeader header;
+        std::string error;
+        ASSERT_TRUE(decodeCapturedMethod(sent.back(), header, error)) << error;
+        ASSERT_EQ(header.class_id, kChannelClassId);
+        ASSERT_EQ(header.method_id,
+                  static_cast<uint16_t>(ChannelMethodId::Close));
+        ChannelClose close;
+        ASSERT_TRUE(decodeChannelClose(header.arguments, close, error));
+        EXPECT_EQ(close.reply_code, 540U)
+            << "class=" << method.class_id << " method=" << method.method_id;
+        EXPECT_EQ(session.state(), ConnectionState::kReady);
+
+        ASSERT_TRUE(session
+                        .feed(encodeMethodFrame(
+                            kChannelClassId,
+                            static_cast<uint16_t>(ChannelMethodId::CloseOk),
+                            "", channel))
+                        .ok);
+        ++channel;
+    }
 }
 
 TEST(ConnectionSessionTest, RejectsMethodOnUnopenedChannel) {
@@ -436,7 +512,7 @@ TEST(ConnectionSessionTest, DeclaresExchangeQueueAndBind) {
               static_cast<uint16_t>(QueueMethodId::BindOk));
 }
 
-TEST(ConnectionSessionTest, PassiveDeclareUsesChannelErrorNotConnectionClose) {
+TEST(ConnectionSessionTest, DispatchesChannelExchangeAndQueueLifecycleMethods) {
     auto host = std::make_shared<broker::VirtualHost>();
     std::vector<std::string> sent;
     ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
@@ -452,23 +528,110 @@ TEST(ConnectionSessionTest, PassiveDeclareUsesChannelErrorNotConnectionClose) {
                         encodeChannelOpen(ChannelOpen{}), channel))
                     .ok);
 
-    QueueDeclare queue;
-    queue.queue = "missing_queue";
-    queue.passive = true;
-    const SessionResult result = session.feed(encodeMethodFrame(
-        kQueueClassId, static_cast<uint16_t>(QueueMethodId::Declare),
-        encodeQueueDeclare(queue), channel));
-    ASSERT_TRUE(result.ok) << result.error;
-    EXPECT_EQ(session.state(), ConnectionState::kReady);
-    EXPECT_FALSE(host->hasQueue("missing_queue"));
+    auto expect_last = [&](uint16_t class_id, uint16_t method_id) {
+        MethodHeader header;
+        std::string error;
+        if (!decodeCapturedMethod(sent.back(), header, error)) {
+            ADD_FAILURE() << error;
+            return;
+        }
 
-    MethodHeader header;
-    std::string error;
-    ASSERT_TRUE(decodeCapturedMethod(sent.back(), header, error)) << error;
-    EXPECT_EQ(header.class_id, kChannelClassId);
-    ChannelClose close;
-    ASSERT_TRUE(decodeChannelClose(header.arguments, close, error)) << error;
-    EXPECT_EQ(close.reply_code, 404U);
+        EXPECT_EQ(header.class_id, class_id);
+        EXPECT_EQ(header.method_id, method_id);
+    };
+
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Flow),
+                        encodeChannelFlow(ChannelFlow{false}), channel))
+                    .ok);
+    expect_last(kChannelClassId,
+                static_cast<uint16_t>(ChannelMethodId::FlowOk));
+
+    ExchangeDeclare declare_exchange;
+    declare_exchange.exchange = "dispatch_logs";
+    declare_exchange.type = "direct";
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kExchangeClassId,
+                        static_cast<uint16_t>(ExchangeMethodId::Declare),
+                        encodeExchangeDeclare(declare_exchange), channel))
+                    .ok);
+    expect_last(kExchangeClassId,
+                static_cast<uint16_t>(ExchangeMethodId::DeclareOk));
+
+    QueueDeclare declare_queue;
+    declare_queue.queue = "dispatch_q";
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kQueueClassId,
+                        static_cast<uint16_t>(QueueMethodId::Declare),
+                        encodeQueueDeclare(declare_queue), channel))
+                    .ok);
+    expect_last(kQueueClassId,
+                static_cast<uint16_t>(QueueMethodId::DeclareOk));
+
+    QueueBind bind;
+    bind.queue = "dispatch_q";
+    bind.exchange = "dispatch_logs";
+    bind.routing_key = "rk";
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kQueueClassId,
+                        static_cast<uint16_t>(QueueMethodId::Bind),
+                        encodeQueueBind(bind), channel))
+                    .ok);
+    expect_last(kQueueClassId,
+                static_cast<uint16_t>(QueueMethodId::BindOk));
+
+    QueueUnbind unbind;
+    unbind.queue = "dispatch_q";
+    unbind.exchange = "dispatch_logs";
+    unbind.routing_key = "rk";
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kQueueClassId,
+                        static_cast<uint16_t>(QueueMethodId::Unbind),
+                        encodeQueueUnbind(unbind), channel))
+                    .ok);
+    expect_last(kQueueClassId,
+                static_cast<uint16_t>(QueueMethodId::UnbindOk));
+
+    QueuePurge purge;
+    purge.queue = "dispatch_q";
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kQueueClassId,
+                        static_cast<uint16_t>(QueueMethodId::Purge),
+                        encodeQueuePurge(purge), channel))
+                    .ok);
+    expect_last(kQueueClassId,
+                static_cast<uint16_t>(QueueMethodId::PurgeOk));
+
+    QueueDelete delete_queue;
+    delete_queue.queue = "dispatch_q";
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kQueueClassId,
+                        static_cast<uint16_t>(QueueMethodId::Delete),
+                        encodeQueueDelete(delete_queue), channel))
+                    .ok);
+    expect_last(kQueueClassId,
+                static_cast<uint16_t>(QueueMethodId::DeleteOk));
+    EXPECT_FALSE(host->hasQueue("dispatch_q"));
+
+    ExchangeDelete delete_exchange;
+    delete_exchange.exchange = "dispatch_logs";
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kExchangeClassId,
+                        static_cast<uint16_t>(ExchangeMethodId::Delete),
+                        encodeExchangeDelete(delete_exchange), channel))
+                    .ok);
+    expect_last(kExchangeClassId,
+                static_cast<uint16_t>(ExchangeMethodId::DeleteOk));
+    EXPECT_FALSE(host->hasExchange("dispatch_logs"));
 }
 
 TEST(ConnectionSessionTest, PublishesMessageIntoQueue) {
@@ -1419,7 +1582,7 @@ TEST(ConnectionSessionTest, RejectsTuneOkFrameMaxBelowMinimum) {
                     .ok);
     ASSERT_EQ(session.state(), ConnectionState::kWaitTuneOk);
 
-    // frame_max 的规范下限是 4096；给出更小的值必须被拒绝，而不是抛异常。
+    // Below the spec minimum the connection must be closed, not thrown.
     ConnectionTune tune_ok;
     tune_ok.channel_max = 2047;
     tune_ok.frame_max = 100;
@@ -1432,6 +1595,130 @@ TEST(ConnectionSessionTest, RejectsTuneOkFrameMaxBelowMinimum) {
     EXPECT_FALSE(result.ok);
     EXPECT_EQ(result.reply_code, 502);
     EXPECT_EQ(session.state(), ConnectionState::kClosed);
+}
+
+// A passive declare is a pure existence check: other fields are ignored, the
+// entity is never modified, and a missing one is a channel-level 404.
+TEST(ConnectionSessionTest, PassiveDeclareOnlyChecksExistence) {
+    auto host = std::make_shared<broker::VirtualHost>();
+    std::vector<std::string> sent;
+    ConnectionSession session(ConnectionConfig{}, [&](const std::string& bytes) {
+        sent.push_back(bytes);
+    }, host);
+    establishReady(session, sent);
+
+    const uint16_t channel = 1;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Open),
+                        encodeChannelOpen(ChannelOpen{}), channel))
+                    .ok);
+
+    ExchangeDeclare ex;
+    ex.exchange = "logs";
+    ex.type = "direct";
+    ex.durable = true;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kExchangeClassId,
+                        static_cast<uint16_t>(ExchangeMethodId::Declare),
+                        encodeExchangeDeclare(ex), channel))
+                    .ok);
+    QueueDeclare queue;
+    queue.queue = "q1";
+    queue.durable = true;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kQueueClassId,
+                        static_cast<uint16_t>(QueueMethodId::Declare),
+                        encodeQueueDeclare(queue), channel))
+                    .ok);
+
+    MethodHeader header;
+    std::string error;
+
+    ExchangeDeclare ex_probe;
+    ex_probe.exchange = "logs";
+    ex_probe.passive = true;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kExchangeClassId,
+                        static_cast<uint16_t>(ExchangeMethodId::Declare),
+                        encodeExchangeDeclare(ex_probe), channel))
+                    .ok);
+    ASSERT_TRUE(decodeCapturedMethod(sent.back(), header, error)) << error;
+    EXPECT_EQ(header.method_id,
+              static_cast<uint16_t>(ExchangeMethodId::DeclareOk));
+    for (const auto& info : host->listExchanges()) {
+        if (info.name == "logs") EXPECT_TRUE(info.durable);
+    }
+
+    QueueDeclare queue_probe;
+    queue_probe.queue = "q1";
+    queue_probe.passive = true;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kQueueClassId,
+                        static_cast<uint16_t>(QueueMethodId::Declare),
+                        encodeQueueDeclare(queue_probe), channel))
+                    .ok);
+    ASSERT_TRUE(decodeCapturedMethod(sent.back(), header, error)) << error;
+    EXPECT_EQ(header.method_id,
+              static_cast<uint16_t>(QueueMethodId::DeclareOk));
+    QueueDeclareOk declare_ok;
+    ASSERT_TRUE(decodeQueueDeclareOk(header.arguments, declare_ok, error))
+        << error;
+    EXPECT_EQ(declare_ok.queue, "q1");
+    for (const auto& info : host->listQueues()) {
+        if (info.name == "q1") EXPECT_TRUE(info.durable);
+    }
+
+    // A fresh channel: the previous one is already in kClosing after the error.
+    const uint16_t channel2 = 2;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Open),
+                        encodeChannelOpen(ChannelOpen{}), channel2))
+                    .ok);
+    ExchangeDeclare missing;
+    missing.exchange = "nope";
+    missing.passive = true;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kExchangeClassId,
+                        static_cast<uint16_t>(ExchangeMethodId::Declare),
+                        encodeExchangeDeclare(missing), channel2))
+                    .ok);
+    ASSERT_TRUE(decodeCapturedMethod(sent.back(), header, error)) << error;
+    EXPECT_EQ(header.method_id,
+              static_cast<uint16_t>(ChannelMethodId::Close));
+    ChannelClose close;
+    ASSERT_TRUE(decodeChannelClose(header.arguments, close, error)) << error;
+    EXPECT_EQ(close.reply_code, 404);
+
+    const uint16_t channel3 = 3;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kChannelClassId,
+                        static_cast<uint16_t>(ChannelMethodId::Open),
+                        encodeChannelOpen(ChannelOpen{}), channel3))
+                    .ok);
+    QueueDeclare missing_queue;
+    missing_queue.queue = "nope";
+    missing_queue.passive = true;
+    ASSERT_TRUE(session
+                    .feed(encodeMethodFrame(
+                        kQueueClassId,
+                        static_cast<uint16_t>(QueueMethodId::Declare),
+                        encodeQueueDeclare(missing_queue), channel3))
+                    .ok);
+    ASSERT_TRUE(decodeCapturedMethod(sent.back(), header, error)) << error;
+    EXPECT_EQ(header.method_id,
+              static_cast<uint16_t>(ChannelMethodId::Close));
+    ASSERT_TRUE(decodeChannelClose(header.arguments, close, error)) << error;
+    EXPECT_EQ(close.reply_code, 404);
 }
 
 }  // namespace mq::amqp091

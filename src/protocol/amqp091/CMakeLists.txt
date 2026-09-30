@@ -3,6 +3,12 @@ add_library(amqp091_protocol STATIC
     fields.cpp
     connection_methods.cpp
     connection_session.cpp
+    session_connection.cpp
+    session_channel.cpp
+    session_exchange.cpp
+    session_queue.cpp
+    session_basic.cpp
+    session_confirm.cpp
     channel_methods.cpp
     exchange_methods.cpp
     queue_methods.cpp
