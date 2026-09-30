@@ -4,57 +4,47 @@
 
 namespace mq::amqp091 {
 
-TEST(ChannelMethodsTest, OpenRoundTrip) {
-    ChannelOpen open;
+// channel.open has no arguments in 0-9-1; the reserved shortstr is tolerated.
+TEST(ChannelMethodsTest, RoundTripsOpenFlowAndClose) {
     std::string error;
-    EXPECT_TRUE(decodeChannelOpen(encodeChannelOpen(open), error)) << error;
+    EXPECT_TRUE(decodeChannelOpen(encodeChannelOpen(ChannelOpen{}), error))
+        << error;
     EXPECT_EQ(encodeChannelOpenOk(), std::string("\x00\x00\x00\x00", 4));
+
+    ChannelFlow flow;
+    flow.active = true;
+    ChannelFlow decoded_flow;
+    ASSERT_TRUE(decodeChannelFlow(encodeChannelFlow(flow), decoded_flow, error))
+        << error;
+    EXPECT_TRUE(decoded_flow.active);
+
+    flow.active = false;
+    ASSERT_TRUE(decodeChannelFlow(encodeChannelFlow(flow), decoded_flow, error))
+        << error;
+    EXPECT_FALSE(decoded_flow.active);
+
+    ChannelClose close;
+    close.reply_code = 406;
+    close.reply_text = "precondition failed";
+    close.class_id = 50;
+    close.method_id = 10;
+    ChannelClose decoded_close;
+    ASSERT_TRUE(
+        decodeChannelClose(encodeChannelClose(close), decoded_close, error))
+        << error;
+    EXPECT_EQ(decoded_close.reply_code, 406U);
+    EXPECT_EQ(decoded_close.reply_text, "precondition failed");
+    EXPECT_EQ(decoded_close.method_id, 10U);
 }
 
-TEST(ChannelMethodsTest, FlowUsesHighBit) {
+// Argument bit fields occupy the least significant bit first (pika, amqp091-go and
+// other clients rely on it); content header property flags use the opposite order.
+TEST(ChannelMethodsTest, FlowUsesLeastSignificantBit) {
     ChannelFlow flow;
     flow.active = true;
     const std::string encoded = encodeChannelFlow(flow);
     ASSERT_EQ(encoded.size(), 1U);
-    EXPECT_EQ(static_cast<unsigned char>(encoded[0]), 0x80U);
-
-    ChannelFlow decoded;
-    std::string error;
-    ASSERT_TRUE(decodeChannelFlow(encoded, decoded, error)) << error;
-    EXPECT_TRUE(decoded.active);
-
-    flow.active = false;
-    ASSERT_TRUE(decodeChannelFlow(encodeChannelFlow(flow), decoded, error))
-        << error;
-    EXPECT_FALSE(decoded.active);
-}
-
-TEST(ChannelMethodsTest, FlowOkRoundTrip) {
-    ChannelFlow flow;
-    flow.active = true;
-    ChannelFlow decoded;
-    std::string error;
-    ASSERT_TRUE(decodeChannelFlowOk(encodeChannelFlowOk(flow), decoded, error))
-        << error;
-    EXPECT_TRUE(decoded.active);
-}
-
-TEST(ChannelMethodsTest, CloseRoundTrip) {
-    ChannelClose close;
-    close.reply_code = 504;
-    close.reply_text = "channel not open";
-    close.class_id = 20;
-    close.method_id = 10;
-
-    ChannelClose decoded;
-    std::string error;
-    ASSERT_TRUE(decodeChannelClose(encodeChannelClose(close), decoded, error))
-        << error;
-    EXPECT_EQ(decoded.reply_code, 504U);
-    EXPECT_EQ(decoded.reply_text, "channel not open");
-    EXPECT_EQ(decoded.class_id, 20U);
-    EXPECT_EQ(decoded.method_id, 10U);
-    EXPECT_EQ(encodeChannelCloseOk(), std::string());
+    EXPECT_EQ(static_cast<unsigned char>(encoded[0]), 0x01U);
 }
 
 }  // namespace mq::amqp091

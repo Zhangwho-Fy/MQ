@@ -10,8 +10,8 @@ namespace {
 
 std::string encodeBitArgument(bool value) {
     WireWriter writer;
-    // Bits are packed starting from the most-significant bit of an octet.
-    writer.writeU8(value ? 0x80 : 0x00);
+    // Method argument bits are packed least-significant bit first.
+    writer.writeU8(value ? 0x01 : 0x00);
     return writer.takeBytes();
 }
 
@@ -24,7 +24,7 @@ bool decodeBitArgument(std::string_view arguments, bool& value,
         return false;
     }
 
-    value = (octet & 0x80) != 0;
+    value = (octet & 0x01) != 0;
     return true;
 }
 

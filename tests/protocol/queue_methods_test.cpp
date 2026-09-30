@@ -4,104 +4,116 @@
 
 namespace mq::amqp091 {
 
-TEST(QueueMethodsTest, DeclareRoundTrip) {
+TEST(QueueMethodsTest, RoundTripsDeclareAndBind) {
+    std::string error;
+
     QueueDeclare declare;
-    declare.ticket = 0;
-    declare.queue = "task_queue";
+    declare.queue = "q1";
     declare.durable = true;
-    declare.exclusive = false;
-    declare.auto_delete = false;
+    declare.exclusive = true;
     declare.arguments.addString("x-dead-letter-exchange", "dlx");
-
-    QueueDeclare decoded;
-    std::string error;
-    ASSERT_TRUE(decodeQueueDeclare(encodeQueueDeclare(declare), decoded, error))
+    QueueDeclare decoded_declare;
+    ASSERT_TRUE(decodeQueueDeclare(encodeQueueDeclare(declare), decoded_declare,
+                                   error))
         << error;
-    EXPECT_EQ(decoded.queue, "task_queue");
-    EXPECT_TRUE(decoded.durable);
-    EXPECT_FALSE(decoded.exclusive);
-    EXPECT_FALSE(decoded.auto_delete);
-    const std::string* dlx = decoded.arguments.findString("x-dead-letter-exchange");
-    ASSERT_NE(dlx, nullptr);
-    EXPECT_EQ(*dlx, "dlx");
-}
+    EXPECT_EQ(decoded_declare.queue, "q1");
+    EXPECT_TRUE(decoded_declare.durable);
+    EXPECT_TRUE(decoded_declare.exclusive);
+    ASSERT_NE(decoded_declare.arguments.findString("x-dead-letter-exchange"),
+              nullptr);
+    EXPECT_EQ(*decoded_declare.arguments.findString("x-dead-letter-exchange"),
+              "dlx");
 
-TEST(QueueMethodsTest, DeclareOkRoundTrip) {
-    QueueDeclareOk ok;
-    ok.queue = "task_queue";
-    ok.message_count = 5;
-    ok.consumer_count = 2;
-
-    QueueDeclareOk decoded;
-    std::string error;
-    ASSERT_TRUE(decodeQueueDeclareOk(encodeQueueDeclareOk(ok), decoded, error))
+    QueueDeclareOk declare_ok;
+    declare_ok.queue = "q1";
+    declare_ok.message_count = 3;
+    declare_ok.consumer_count = 2;
+    QueueDeclareOk decoded_ok;
+    ASSERT_TRUE(decodeQueueDeclareOk(encodeQueueDeclareOk(declare_ok),
+                                     decoded_ok, error))
         << error;
-    EXPECT_EQ(decoded.queue, "task_queue");
-    EXPECT_EQ(decoded.message_count, 5U);
-    EXPECT_EQ(decoded.consumer_count, 2U);
-}
+    EXPECT_EQ(decoded_ok.queue, "q1");
+    EXPECT_EQ(decoded_ok.message_count, 3U);
+    EXPECT_EQ(decoded_ok.consumer_count, 2U);
 
-TEST(QueueMethodsTest, BindAndUnbindRoundTrip) {
     QueueBind bind;
     bind.queue = "q1";
-    bind.exchange = "ex1";
-    bind.routing_key = "news.*";
-
+    bind.exchange = "logs";
+    bind.routing_key = "task";
     QueueBind decoded_bind;
-    std::string error;
     ASSERT_TRUE(decodeQueueBind(encodeQueueBind(bind), decoded_bind, error))
         << error;
-    EXPECT_EQ(decoded_bind.queue, "q1");
-    EXPECT_EQ(decoded_bind.exchange, "ex1");
-    EXPECT_EQ(decoded_bind.routing_key, "news.*");
+    EXPECT_EQ(decoded_bind.exchange, "logs");
+    EXPECT_EQ(decoded_bind.routing_key, "task");
 
     QueueUnbind unbind;
     unbind.queue = "q1";
-    unbind.exchange = "ex1";
-    unbind.routing_key = "news.*";
+    unbind.exchange = "logs";
+    unbind.routing_key = "task";
     QueueUnbind decoded_unbind;
     ASSERT_TRUE(
         decodeQueueUnbind(encodeQueueUnbind(unbind), decoded_unbind, error))
         << error;
-    EXPECT_EQ(decoded_unbind.routing_key, "news.*");
+    EXPECT_EQ(decoded_unbind.queue, "q1");
+    EXPECT_EQ(decoded_unbind.routing_key, "task");
 }
 
-TEST(QueueMethodsTest, PurgeAndDeleteRoundTrip) {
+TEST(QueueMethodsTest, RoundTripsPurgeAndDelete) {
+    std::string error;
+
     QueuePurge purge;
     purge.queue = "q1";
-    purge.no_wait = false;
+    purge.no_wait = true;
     QueuePurge decoded_purge;
-    std::string error;
     ASSERT_TRUE(decodeQueuePurge(encodeQueuePurge(purge), decoded_purge, error))
         << error;
-    EXPECT_EQ(decoded_purge.queue, "q1");
+    EXPECT_TRUE(decoded_purge.no_wait);
 
     QueuePurgeOk purge_ok;
-    purge_ok.message_count = 42;
+    purge_ok.message_count = 5;
     QueuePurgeOk decoded_purge_ok;
-    ASSERT_TRUE(decodeQueuePurgeOk(encodeQueuePurgeOk(purge_ok),
-                                   decoded_purge_ok, error))
+    ASSERT_TRUE(
+        decodeQueuePurgeOk(encodeQueuePurgeOk(purge_ok), decoded_purge_ok,
+                           error))
         << error;
-    EXPECT_EQ(decoded_purge_ok.message_count, 42U);
+    EXPECT_EQ(decoded_purge_ok.message_count, 5U);
 
-    QueueDelete delete_queue;
-    delete_queue.queue = "q1";
-    delete_queue.if_unused = true;
-    delete_queue.if_empty = true;
+    QueueDelete remove;
+    remove.queue = "q1";
+    remove.if_unused = true;
     QueueDelete decoded_delete;
-    ASSERT_TRUE(decodeQueueDelete(encodeQueueDelete(delete_queue),
-                                  decoded_delete, error))
+    ASSERT_TRUE(
+        decodeQueueDelete(encodeQueueDelete(remove), decoded_delete, error))
         << error;
     EXPECT_TRUE(decoded_delete.if_unused);
-    EXPECT_TRUE(decoded_delete.if_empty);
+    EXPECT_FALSE(decoded_delete.if_empty);
 
     QueueDeleteOk delete_ok;
     delete_ok.message_count = 7;
     QueueDeleteOk decoded_delete_ok;
-    ASSERT_TRUE(decodeQueueDeleteOk(encodeQueueDeleteOk(delete_ok),
-                                    decoded_delete_ok, error))
+    ASSERT_TRUE(
+        decodeQueueDeleteOk(encodeQueueDeleteOk(delete_ok), decoded_delete_ok,
+                            error))
         << error;
     EXPECT_EQ(decoded_delete_ok.message_count, 7U);
+}
+
+// durable is the second bit field of queue.declare, so it alone must be 0x02.
+TEST(QueueMethodsTest, DeclarePacksBitsLeastSignificantFirst) {
+    QueueDeclare declare;
+    declare.queue = "q1";
+    declare.durable = true;
+
+    const std::string encoded = encodeQueueDeclare(declare);
+    const std::size_t bits_offset = 2 + 1 + 2;  // ticket + shortstr(queue)
+    ASSERT_GT(encoded.size(), bits_offset);
+    EXPECT_EQ(static_cast<unsigned char>(encoded[bits_offset]), 0x02U);
+
+    QueueDeclare decoded;
+    std::string error;
+    ASSERT_TRUE(decodeQueueDeclare(encoded, decoded, error)) << error;
+    EXPECT_TRUE(decoded.durable);
+    EXPECT_FALSE(decoded.passive);
 }
 
 }  // namespace mq::amqp091

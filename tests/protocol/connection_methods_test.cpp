@@ -4,78 +4,69 @@
 
 namespace mq::amqp091 {
 
-TEST(ConnectionMethodsTest, MethodHeaderRoundTrip) {
+TEST(ConnectionMethodsTest, RoundTripsHandshakeMethods) {
+    std::string error;
+
     const std::string payload =
         encodeMethodHeader(10, 10, std::string("\x01\x02\x03", 3));
     MethodHeader header;
-    std::string error;
     ASSERT_TRUE(decodeMethodHeader(payload, header, error)) << error;
     EXPECT_EQ(header.class_id, 10U);
     EXPECT_EQ(header.method_id, 10U);
     EXPECT_EQ(header.arguments, std::string("\x01\x02\x03", 3));
-}
 
-TEST(ConnectionMethodsTest, StartRoundTrip) {
     ConnectionStart start;
-    start.version_major = 0;
-    start.version_minor = 9;
     start.server_properties.addString("product", "FyMQ");
     start.mechanisms = "PLAIN AMQPLAIN";
     start.locales = "en_US zh_CN";
-
-    ConnectionStart decoded;
-    std::string error;
-    const std::string args = encodeConnectionStart(start);
-    ASSERT_TRUE(decodeConnectionStart(args, decoded, error)) << error;
-    EXPECT_EQ(decoded.version_major, 0U);
-    EXPECT_EQ(decoded.version_minor, 9U);
-    EXPECT_EQ(decoded.mechanisms, "PLAIN AMQPLAIN");
-    EXPECT_EQ(decoded.locales, "en_US zh_CN");
-    const std::string* product = decoded.server_properties.findString("product");
+    ConnectionStart decoded_start;
+    ASSERT_TRUE(decodeConnectionStart(encodeConnectionStart(start),
+                                      decoded_start, error))
+        << error;
+    EXPECT_EQ(decoded_start.version_major, 0U);
+    EXPECT_EQ(decoded_start.version_minor, 9U);
+    EXPECT_EQ(decoded_start.mechanisms, "PLAIN AMQPLAIN");
+    EXPECT_EQ(decoded_start.locales, "en_US zh_CN");
+    const std::string* product = decoded_start.server_properties.findString("product");
     ASSERT_NE(product, nullptr);
     EXPECT_EQ(*product, "FyMQ");
-}
 
-TEST(ConnectionMethodsTest, StartOkRoundTrip) {
     ConnectionStartOk start_ok;
     start_ok.client_properties.addString("product", "pika");
     start_ok.mechanism = "PLAIN";
     start_ok.response = std::string("\0guest\0guest", 12);
     start_ok.locale = "en_US";
-
-    ConnectionStartOk decoded;
-    std::string error;
+    ConnectionStartOk decoded_ok;
     ASSERT_TRUE(decodeConnectionStartOk(encodeConnectionStartOk(start_ok),
-                                        decoded, error))
+                                        decoded_ok, error))
         << error;
-    EXPECT_EQ(decoded.mechanism, "PLAIN");
-    EXPECT_EQ(decoded.response, start_ok.response);
-    EXPECT_EQ(decoded.locale, "en_US");
-    const std::string* product = decoded.client_properties.findString("product");
-    ASSERT_NE(product, nullptr);
-    EXPECT_EQ(*product, "pika");
-}
+    EXPECT_EQ(decoded_ok.mechanism, "PLAIN");
+    EXPECT_EQ(decoded_ok.response, start_ok.response);
+    EXPECT_EQ(decoded_ok.locale, "en_US");
+    const std::string* client_product =
+        decoded_ok.client_properties.findString("product");
+    ASSERT_NE(client_product, nullptr);
+    EXPECT_EQ(*client_product, "pika");
 
-TEST(ConnectionMethodsTest, TuneRoundTrip) {
     ConnectionTune tune;
     tune.channel_max = 2047;
     tune.frame_max = 131072;
     tune.heartbeat = 60;
-
-    ConnectionTune decoded;
-    std::string error;
-    ASSERT_TRUE(decodeConnectionTune(encodeConnectionTune(tune), decoded, error))
+    ConnectionTune decoded_tune;
+    ASSERT_TRUE(
+        decodeConnectionTune(encodeConnectionTune(tune), decoded_tune, error))
         << error;
-    EXPECT_EQ(decoded.channel_max, 2047U);
-    EXPECT_EQ(decoded.frame_max, 131072U);
-    EXPECT_EQ(decoded.heartbeat, 60U);
+    EXPECT_EQ(decoded_tune.channel_max, 2047U);
+    EXPECT_EQ(decoded_tune.frame_max, 131072U);
+    EXPECT_EQ(decoded_tune.heartbeat, 60U);
 }
 
-TEST(ConnectionMethodsTest, OpenAndCloseRoundTrip) {
+TEST(ConnectionMethodsTest, RoundTripsOpenAndClose) {
+    std::string error;
+
     ConnectionOpen open;
     open.virtual_host = "/";
     ConnectionOpen decoded_open;
-    std::string error;
     ASSERT_TRUE(decodeConnectionOpen(encodeConnectionOpen(open), decoded_open,
                                      error))
         << error;

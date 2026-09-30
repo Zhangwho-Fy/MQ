@@ -48,14 +48,15 @@ inline bool readLongString(WireReader& reader, std::string& value) {
     return true;
 }
 
-// Unpacks up to eight bits from one octet, most significant bit first.
+// Unpacks up to eight bits from one octet, first field in the least significant
+// bit (mirrors writeBits).
 inline bool readBits(WireReader& reader, std::initializer_list<bool*> bits) {
     uint8_t octet = 0;
     if (!reader.readU8(octet)) return false;
     size_t index = 0;
     for (bool* bit : bits) {
         if (index >= 8) return false;
-        *bit = (octet & (0x80U >> index)) != 0;
+        *bit = (octet & (1U << index)) != 0;
         ++index;
     }
 

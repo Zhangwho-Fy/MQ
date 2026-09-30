@@ -42,13 +42,15 @@ inline bool writeLongString(WireWriter& writer, std::string_view value) {
     return true;
 }
 
-// Packs up to eight bits into one octet, most significant bit first.
+// Packs up to eight bits into one octet, first field in the least significant bit
+// (this is the convention for AMQP method arguments; content header property
+// flags use the opposite order).
 inline bool writeBits(WireWriter& writer, std::initializer_list<bool> bits) {
     uint8_t octet = 0;
     size_t index = 0;
     for (const bool bit : bits) {
         if (index >= 8) return false;
-        if (bit) octet |= static_cast<uint8_t>(0x80U >> index);
+        if (bit) octet |= static_cast<uint8_t>(1U << index);
         ++index;
     }
 

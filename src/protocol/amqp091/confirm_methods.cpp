@@ -10,12 +10,12 @@ namespace {
 bool readBits(WireReader& reader, bool& bit) {
     uint8_t octet = 0;
     if (!reader.readU8(octet)) return false;
-    bit = (octet & 0x80U) != 0;
+    bit = (octet & 0x01U) != 0;
     return true;
 }
 
 void writeBits(WireWriter& writer, bool bit) {
-    writer.writeU8(bit ? 0x80 : 0x00);
+    writer.writeU8(bit ? 0x01 : 0x00);
 }
 
 }  // namespace
